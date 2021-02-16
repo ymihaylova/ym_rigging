@@ -63,6 +63,7 @@ def main():
     fkCtlsList = []
     ikCtlsList = []
 
+    
     for side in "LR":
         ikChain = mc.duplicate("%s_leg00Bind_JNT" % side, renameChildren = 1)
         renamedIkChain = []
@@ -70,28 +71,29 @@ def main():
             renamedIkChain.append(mc.rename(jnt, jnt.replace("Bind_JNT1", "Ik_JNT")))
         
         ikChain = renamedIkChain
+        prevFkCtl = []
+        # Build FK controls
 
-        for jnt in range(len(ikChain) -1, -1, -1):
-            if jnt == (len(ikChain) - 1):
-                lastFkCtl = buildControl(side, "leg0%s" % jnt , ikChain[jnt],
-                    colour=17 if side == "L" else 19)
-                mc.scale(6,6,6,lastFkCtl[0] + ".cv[*]")
-                mc.rotate(90,0,0,lastFkCtl[0] + ".cv[*]")
-                fkCtlsList.append(lastFkCtl[0])
-            else:
-                fkCtl = buildControl(side, "leg0%s" % jnt , ikChain[jnt], 
-                    colour=17 if side == "L" else 19)
-                if jnt == 0:
-                    if side == "L":
-                     mc.move(0, 0, 1.5, fkCtl[0] + ".cv[*]", os=1, wd=1, r=1)
-                    else: 
-                        mc.move(0, 0, -1.5
-                        , fkCtl[0] + ".cv[*]", os=1, wd=1, r=1)
+        for jnt in range(len(ikChain)-1):
+            fkCtl = buildControl(side, "leg%s" % str(jnt).zfill(2) , ikChain[jnt], 
+                colour=17 if side == "L" else 19)
 
-                mc.scale(6,6,6,fkCtl[0] + ".cv[*]")
-                mc.rotate(0,90,0,fkCtl[0] + ".cv[*]")
-                mc.parent(lastFkCtl[2], fkCtl[0])
-                lastFkCtl = fkCtl
+            mc.scale(6,6,6,fkCtl[0] + ".cv[*]")
+
+            if jnt != (len(ikChain)-2):
+                mc.rotate(90,0,0,fkCtl[0] + ".cv[*]", ws=1)
+                print("rotating" + ikChain[jnt])
+
+            if jnt == 0:
+                mc.move(0, -8, 0, fkCtl[0] + ".cv[*]", ws=1, r=1)
+
+            if prevFkCtl != []:
+                mc.parent(fkCtl[2], prevFkCtl[0])
+            
+            prevFkCtl = fkCtl 
+
+
+
 
 
 # if limb == "arm":
