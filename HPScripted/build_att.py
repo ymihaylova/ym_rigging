@@ -1,6 +1,8 @@
 from maya import cmds as mc
-# import ctl_shapes as cs
+from maya import OpenMaya as om
+# from maya import ctl_shapes as cs
 
+DEBUG_MODE = True
 DIAMOND_SHAPE_CVS = [[-1.0, 0.0, 0.0],
                      [0.0, 1.0, 0.0],
                      [1.0, 0.0, 0.0],
@@ -48,6 +50,42 @@ def buildControl(side, name, guide=None, shapeCVs=[], colour=17, offset = []):
 
     return control, offset, group
 
+def getPoleVectorPosition(rootPos, midPos, endPos):
+
+    rootJntVector = om.MVector(rootPos[0], rootPos[1], rootPos[2])
+    midJntVector = om.MVector(midPos[0], midPos[1], midPos[2])
+    endJntVector = om.MVector(endPos[0], endPos[1], endPos[2])
+
+    rootToEnd = (endJntVector - rootJntVector)
+    closestPoint = (midJntVector - rootJntVector)
+
+    scaleValue = (rootToEnd * closestPoint) / (rootToEnd * rootToEnd)
+
+    projectionVector = rootToEnd * scaleValue + rootJntVector
+
+    rootToMidLen = (midJntVector - rootJntVector).length()
+    midToEndLen = (endJntVector - midJntVector).length()
+    totalLen = rootToMidLen + midToEndLen
+
+    poleVectorPosition = (midJntVector - projectionVector).normal() * \
+                    (totalLen * 0.5) + midJntVector
+    
+    return poleVectorPosition
+
+def getIkhPoleVecPos(ikHandle):
+
+    # List the joint chain IK Handle affects and 
+    jointList = mc.ikHandle(ikHandle, q=True, jointList=True)
+    jointList.append(mc.listRelatives(jointList[-1], children=True, type="joint")[0])
+
+    rootJntPos = mc.xform(jointList[0], q=1, ws=1, t=1)
+    midJntPos = mc.xform(jointList[1], q=1, ws=1, t=1)
+    endJntPos = mc.xform(jointList[2], q=1, ws=1, t=1)
+
+    poleVectorPos = getPoleVectorPosition(rootJntPos, midJntPos, endJntPos)
+
+    return poleVectorPos
+
 
 def main():
 
@@ -63,25 +101,22 @@ def main():
     fkCtlsList = []
     ikCtlsList = []
 
-    
+    # legBindChain = mc.ls("L_leg??Bind_JNT")[0]
+    # # legBindChain.append(mc.listRelatives("L_leg00Bind_JNT", ad=1))
+    # print(legBindChain)
+
     for side in "LR":
-        ikChain = mc.duplicate("%s_leg00Bind_JNT" % side, renameChildren = 1)
-        renamedIkChain = []
-        for jnt in ikChain:
-            renamedIkChain.append(mc.rename(jnt, jnt.replace("Bind_JNT1", "Ik_JNT")))
-        
-        ikChain = renamedIkChain
+        # Build FK controls
+        legBindChain = mc.ls("%s_leg??Bind_JNT" % side)
         prevFkCtl = []
 
-        # Build FK controls
-
-        for jnt in range(len(ikChain)-1):
-            fkCtl = buildControl(side, "leg%s" % str(jnt).zfill(2) , ikChain[jnt], 
+        for jnt in range(len(legBindChain)-1):
+            fkCtl = buildControl(side, "leg%s" % str(jnt).zfill(2) , legBindChain[jnt], 
                 colour=17 if side == "L" else 19)
 
             mc.scale(6,6,6,fkCtl[0] + ".cv[*]")
 
-            if jnt != (len(ikChain)-2): # omit rotating the toe FK control CVs 
+            if jnt != (len(legBindChain)-2): # omit rotating the toe FK control CVs 
                 mc.rotate(90,0,0,fkCtl[0] + ".cv[*]", ws=1)
 
             if jnt == 0: # move the hip FK control CVs for visual clarity
@@ -89,9 +124,41 @@ def main():
 
             if prevFkCtl != []:
                 mc.parent(fkCtl[2], prevFkCtl[0])
-            
-            prevFkCtl = fkCtl 
 
+            fkCtlsList.append(fkCtl)
+            prevFkCtl = fkCtl 
+        
+        # Create IK copy of the leg chain
+        ikChain = mc.duplicate("%s_leg00Bind_JNT" % side, renameChildren = 1)
+        renamedIkChain = []
+        for jnt in ikChain:
+            renamedIkChain.append(mc.rename(jnt, jnt.replace("Bind_JNT1", "Ik_JNT")))
+        
+        ikChain = renamedIkChain
+
+        # Build IK foot control:
+        footIkCtl = buildControl(side, "leg02IK", "%s_leg02Ik_JNT" % side, 
+                shapeCVs=SQUARE_SHAPE_CVS, colour=18 if side=="L" else 20)
+        mc.scale(6,6,6, footIkCtl[0] + ".cv[*]")
+
+        # Create IK handle and parent to IK control:
+        footIkHandle, _ = mc.ikHandle(sj="%s_leg00Ik_JNT" % side, ee="%s_leg02Ik_JNT" % side, sol="ikRPsolver")
+        footIkHandle = mc.rename(footIkHandle, "%s_leg02_IKH" % side)
+        mc.parent(footIkHandle, footIkCtl[0])
+
+        # Build Pole Vector control and create pole vector constraint to leg02IK:
+        kneePoleVectorCtl = buildControl(side, "kneePoleVector", "%s_leg01Ik_JNT" 
+                        % side, shapeCVs=DIAMOND_SHAPE_CVS, colour=18 if side=="L"
+                        else 20)
+        
+        kneePoleVectorPos = getIkhPoleVecPos(footIkHandle)
+        mc.scale(4,4,4, kneePoleVectorCtl[0] + ".cv[*]")
+        mc.move(kneePoleVectorPos.x, kneePoleVectorPos.y, kneePoleVectorPos.z, 
+                        kneePoleVectorCtl)
+        mc.poleVectorConstraint(kneePoleVectorCtl, footIkHandle)
+
+
+        
 
 
 
