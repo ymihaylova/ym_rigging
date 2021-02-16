@@ -72,6 +72,7 @@ def main():
         
         ikChain = renamedIkChain
         prevFkCtl = []
+
         # Build FK controls
 
         for jnt in range(len(ikChain)-1):
@@ -80,11 +81,10 @@ def main():
 
             mc.scale(6,6,6,fkCtl[0] + ".cv[*]")
 
-            if jnt != (len(ikChain)-2):
+            if jnt != (len(ikChain)-2): # omit rotating the toe FK control CVs 
                 mc.rotate(90,0,0,fkCtl[0] + ".cv[*]", ws=1)
-                print("rotating" + ikChain[jnt])
 
-            if jnt == 0:
+            if jnt == 0: # move the hip FK control CVs for visual clarity
                 mc.move(0, -8, 0, fkCtl[0] + ".cv[*]", ws=1, r=1)
 
             if prevFkCtl != []:
