@@ -176,7 +176,7 @@ def buildLimb(side, name, parent):
         fkCtlsGrpList.append(fkCtlGrp)
         prevFkCtl, prevFkCtlGrp = fkCtl, fkCtlGrp
 
-    # Create IK copy of the leg chain
+    # Create IK copy of the blend chain
     ikChain = mc.duplicate("%s_%s00_JNT" % (side, name), renameChildren=1)
     renamedIkChain = []
     for jnt in ikChain:
@@ -210,6 +210,7 @@ def getPoleVectorPosition(rootPos, midPos, endPos):
     return poleVectorPosition
 
 def getIkhPoleVecPos(ikHandle):
+    #Get joints influencing the IK handle and call poleVectorPos() on them
     jointList = mc.ikHandle(ikHandle, q=True, jointList=True)
     jointList.append(mc.listRelatives(jointList[-1], children=True, type="joint")[0])
 
@@ -270,7 +271,6 @@ def main():
         kneePoleVectorCtl, _, kneePoleVectorGrp = buildControl(side, 
         "kneePoleVector", "%s_leg01Ik_JNT" % side, shapeCVs=DIAMOND_SHAPE_CVS, 
                                                 colour=18 if side=="L" else 20)
-        
         kneePoleVectorPos = getIkhPoleVecPos(footIkHandle)
         mc.scale(4,4,4, kneePoleVectorCtl + ".cv[*]")
         mc.move(kneePoleVectorPos.x, kneePoleVectorPos.y, kneePoleVectorPos.z, 
