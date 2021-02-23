@@ -74,6 +74,8 @@ SPINEMID_SHAPE_CVS = [[11.97727846744739, 7.333967868827961e-16, -9.744127355522
                     [-1.7713046701598608e-15, 7.183548693826223e-16, -9.54427597573159], 
                     [-11.977278467447366, 7.333967868827967e-16, -9.744127355522796]]
 SPINEMID_SHAPE_KNOTS = [-2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+
+
 class SpineComponent:
     def __init__(self, jointChain, curve):
         self.build(jointChain, curve)
@@ -219,6 +221,14 @@ def getIkhPoleVecPos(ikHandle):
 
     return poleVectorPos
 
+def parentConstrain(driven, *args, **kwargs):
+    constraintsList = []
+    for arg in args:
+        for comp, driver in zip(driven, arg):
+            parCon = mc.parentConstraint(driver, comp, **kwargs)[0]
+            if parCon not in constraintsList:
+                constraintsList.append(parCon)
+    return constraintsList
 
 def main():
     #Create a new file and import model and guides 
@@ -271,14 +281,12 @@ def main():
                  % side, w=1)
 
         # Create parent constraints to bind skeleton:
-        blendChainParentConstraints = []
-        for blendJnt, ikJnt, fkCtl in zip(blendChain[:-1], ikChain, fkCtlsList):
-            parCon = mc.parentConstraint(ikJnt, fkCtl, blendJnt, mo=0)[0]
-            blendChainParentConstraints.append(parCon)
+        blendChainParentConstraints = parentConstrain(blendChain[:-1], \
+                                ikChain[:-1], fkCtlsList, mo=0)
         
         # Create and position IK/FK Switch
         ikFkSwitchCtl, ikFkSwitchOfs, ikFkSwitchGrp = buildControl(side, 
-                "ikFkSwitch", "%s_leg02_JNT" % side, shapeCVs=SWITCH_SHAPE_CVS)
+                "legIkFkSwitch", "%s_leg02_JNT" % side, shapeCVs=SWITCH_SHAPE_CVS)
 
         mc.rotate(90, 0, 90, ikFkSwitchGrp, r=1, ws=1)    
         if side=="L":
@@ -291,7 +299,7 @@ def main():
 
         # Reverse IK FK switch attribute's value:
         reversalNodeIkFk = mc.createNode("plusMinusAverage", 
-                        n="%s_ikFkReversedValue_PMA" % side)
+                        n="%s_legIkFkReversedValue_PMA" % side)
         mc.setAttr(reversalNodeIkFk + ".operation", 2)
         mc.setAttr(reversalNodeIkFk + ".input1D[0]", 1)
         mc.connectAttr(ikFkSwitchAttr, reversalNodeIkFk + ".input1D[1]")
@@ -302,121 +310,83 @@ def main():
             mc.connectAttr(reversalNodeIkFk + ".output1D", parCon +".w0")
 
         # Connect IK/FK Switch to control visibility:
-        # for ctl in ikCtlsGrp:
-        #     print(ctl)
         mc.connectAttr(reversalNodeIkFk + ".output1D", ikCtlsGrp + ".v")
+        mc.connectAttr(ikFkSwitchAttr, fkCtlsGrpList[0] + ".v")
+
+     # Build arm FK ctls. IK chain, Handle and Ctls 
+    for side in "LR":
+                # Build IK chain and FK ctls
+        blendChain, fkCtlsList, fkCtlsOfsList, fkCtlsGrpList, ikChain = buildLimb(side, "arm", "C_chest_CTL")
+        #Re-size and position FK Ctls
+        for fkCtl in fkCtlsList:
+            mc.scale(6,6,6,fkCtl + ".cv[*]")
+            mc.rotate(0,90,0,fkCtl + ".cv[*]", r=1)
+
+            if fkCtl == fkCtlsList[0]: # move the clavicle FK control CVs for visual clarity
+                if side =="L":
+                    mc.move(3, 0, 0, fkCtl + ".cv[*]", ws=1, r=1)
+                else:
+                    mc.move(-3, 0, 0, fkCtl + ".cv[*]", ws=1, r=1)
+                mc.scale(1.5,1.5,1.5,fkCtl + ".cv[*]")
+
+        # Build IK wrist control:
+        wristIkCtl, _, wristIkGrp = buildControl(side, "arm03Ik", "%s_arm03Ik_JNT" % side, 
+                shapeCVs=SQUARE_SHAPE_CVS, colour=18 if side=="L" else 20)
+        mc.scale(6,6,6, wristIkCtl + ".cv[*]")
+        mc.rotate(0,0,90, wristIkCtl + ".cv[*]", r=1)
         
-        for ctl in fkCtlsList:
-            mc.connectAttr(ikFkSwitchAttr, ctl + ".v")
+        # Create IK handle and parent to IK control:
+        wristIkHandle, _ = mc.ikHandle(sj="%s_arm01Ik_JNT" % side, \
+                        ee="%s_arm03Ik_JNT" % side, sol="ikRPsolver")
+        wristIkHandle = mc.rename(wristIkHandle, "%s_arm03_IKH" % side)
+        mc.parent(wristIkHandle, wristIkCtl)
 
-
-
-
-    # Build arm FK ctls. IK chain, Handle and Ctls 
-    # for side in "LR":
-
-    #     armBindChain = mc.ls("%s_arm??Bind_JNT" % side)
-    #     fkCtlsList = []
-    #     prevFkCtl = []
-
-    #     for jnt in range(len(armBindChain)-1):
-    #         fkCtl = buildControl(side, "arm%s" % str(jnt).zfill(2) , armBindChain[jnt], 
-    #              colour=17 if side == "L" else 19)
-
-    #         mc.scale(6,6,6,fkCtl + ".cv[*]")
-    #         mc.rotate(0,90,0,fkCtl + ".cv[*]", ws=1)
-
-    #         if jnt == 0: # move the clavicle FK control CVs for visual clarity
-    #             if side =="L":
-    #                 mc.move(3, 0, 0, fkCtl + ".cv[*]", ws=1, r=1)
-    #             else:
-    #                 mc.move(-3, 0, 0, fkCtl + ".cv[*]", ws=1, r=1)
-    #             mc.scale(1.5,1.5,1.5,fkCtl + ".cv[*]")
-
-
-    #         if prevFkCtl != []:
-    #             mc.parent(fkCtl[2], prevfkCtl)
-
-    #         fkCtlsList.append(fkCtl)
-    #         prevFkCtl = fkCtl 
+        # Build Pole Vector control and create pole vector constraint to leg02IK:
+        elbowPoleVectorCtl, _, elbowPoleVectorGrp = buildControl(side, \
+                            "elbowPoleVector", "%s_arm02Ik_JNT" % side,\
+                            shapeCVs=DIAMOND_SHAPE_CVS, colour=18 if side=="L" else 20)
         
-    #     # Create IK copy of the leg chain
-    #     ikChain = mc.duplicate("%s_arm00Bind_JNT" % side, renameChildren = 1)
-    #     renamedIkChain = []
+        elbowPoleVectorPos = getIkhPoleVecPos(wristIkHandle)
+        mc.scale(4,4,4, elbowPoleVectorCtl + ".cv[*]")
+        mc.move(elbowPoleVectorPos.x, elbowPoleVectorPos.y, elbowPoleVectorPos.z, 
+                        elbowPoleVectorGrp)
+        mc.poleVectorConstraint(elbowPoleVectorCtl, wristIkHandle)
 
-    #     for jnt in ikChain:
-    #         renamedIkChain.append(mc.rename(jnt, jnt.replace("Bind_JNT1", "Ik_JNT")))
+        ikCtlsGrp = mc.group(elbowPoleVectorGrp, wristIkGrp, n="%s_armIkCtls_GRP"\
+                 % side, w=1)
+
+        # Create parent constraints to bind skeleton:
+        blendChainParentConstraints = parentConstrain(blendChain[:-1], fkCtlsList,\
+                                ikChain[:-1], mo=0)
         
-    #     ikChain = renamedIkChain
-
-    #     # Build IK wrist control:
-    #     ikCtlsList = []
-    #     wristIkCtl = buildControl(side, "arm03Ik", "%s_arm03Ik_JNT" % side, 
-    #             shapeCVs=SQUARE_SHAPE_CVS, colour=18 if side=="L" else 20)
-    #     mc.scale(6,6,6, armIkCtl[0] + ".cv[*]")
-    #     ikCtlsList.append(armIkCtl)
-
-    #     # Create IK handle and parent to IK control:
-        
-    #     armIkHandle, _ = mc.ikHandle(sj="%s_arm01Ik_JNT" % side, ee="%s_leg03Ik_JNT" % side, sol="ikRPsolver")
-    #     armIkHandle = mc.rename(armIkHandle, "%s_arm03_IKH" % side)
-    #     mc.parent(armIkHandle, armIkCtl[0])
-
-    #     # Build Pole Vector control and create pole vector constraint to leg02IK:
-    #     elbowPoleVectorCtl = buildControl(side, "elbowPoleVector", "%s_arm02Ik_JNT" 
-    #                     % side, shapeCVs=DIAMOND_SHAPE_CVS, colour=18 if side=="L"
-    #                     else 20)
-        
-    #     elbowPoleVectorPos = getIkhPoleVecPos(armIkHandle)
-    #     mc.scale(4,4,4, elbowPoleVectorCtl[0] + ".cv[*]")
-    #     mc.move(elbowPoleVectorPos.x, elbowPoleVectorPos.y, elbowPoleVectorPos.z, 
-    #                     elbowPoleVectorCtl[2])
-    #     mc.poleVectorConstraint(elbowPoleVectorCtl, wristIkHandle)
-
-    #     ikCtlsList.append(elbowPoleVectorCtl)
-    #     mc.group(elbowPoleVectorCtl[2], wristIkCtl[2], n="%s_armikCtls_GRP" % side, w=1)
-
-    #     # Create parent constraints to bind skeleton:
-    #     bindChainParentConstraints = []
-    #     for i in range(len(armBindChain)): # IK
-    #         parCon = mc.parentConstraint(ikChain[i], armBindChain[i], mo=0)[0]
-            
-    #         if i != (len(legBindChain)-1): #FK
-    #             mc.parentConstraint(fkCtlsList[i][0], armBindChain[i], mo=0)
-    #         else:
-    #             mc.parentConstraint(fkCtlsList[i-1][0], armBindChain[i], mo=1)
-            
-    #         bindChainParentConstraints.append(parCon)
-        
-    #     # Create and position IK/FK Switch 
-    #     # NOTE: to be turned into a function useable by both arms and legs?
-    #     ikFkSwitch = buildControl(side, "ikFkSwitch", "%s_arm03Bind_JNT" % side)
-    #     mc.move(0, 5,0, ikFkSwitch[2], r=1)
+        # Create and position IK/FK Switch 
+        # NOTE: to be turned into a function useable by both arms and legs?
+        # Create and position IK/FK Switch
+        ikFkSwitchCtl, ikFkSwitchOfs, ikFkSwitchGrp = buildControl(side, 
+                "armIkFkSwitch", "%s_arm03_JNT" % side, shapeCVs=SWITCH_SHAPE_CVS)
+        mc.move(0, 10, -10, ikFkSwitchGrp, r=1, ws=1)
+        mc.rotate(90, 0, 0, ikFkSwitchGrp, ws=1, r=1)
+        mc.parentConstraint("%s_arm03_JNT" % side, ikFkSwitchOfs, mo=1)
     
-    #     mc.parentConstraint("%s_arm03Bind_JNT" % side, ikFkSwitch[1], mo=1)
-    #     mc.select(ikFkSwitch[0])
-    #     mc.addAttr(at="float", k=1, ln="ikFkSwitch", max=1, min=0, dv=0)
+        ikFkSwitchAttr = addAttr(ikFkSwitchCtl, at="float", k=1, ln="ikFkSwitch",
+                     max=1, min=0, dv=0)
 
-    #     # Reverse IK FK switch attribute's value:
-    #     reversalNodeIkFk = mc.createNode("plusMinusAverage", 
-    #                     n="%s_ikFkReversedValue_PMA" % side)
-    #     mc.setAttr(reversalNodeIkFk + ".operation", 2)
-    #     mc.setAttr(reversalNodeIkFk + ".input1D[0]", 1)
-    #     mc.connectAttr(ikFkSwitch[0] + ".ikFkSwitch", reversalNodeIkFk + ".input1D[1]")
+        # Reverse IK FK switch attribute's value:
+        reversalNodeIkFk = mc.createNode("plusMinusAverage", 
+                        n="%s_armIkFkReversedValue_PMA" % side)
+        mc.setAttr(reversalNodeIkFk + ".operation", 2)
+        mc.setAttr(reversalNodeIkFk + ".input1D[0]", 1)
+        mc.connectAttr(ikFkSwitchAttr, reversalNodeIkFk + ".input1D[1]")
 
-    #     # Connect IK/Fk Switch to parent constraints:
-    #     for parCon in bindChainParentConstraints:
-    #         mc.connectAttr(ikFkSwitch[0] + ".ikFkSwitch", parCon + ".w1")
-    #         mc.connectAttr(reversalNodeIkFk + ".output1D", parCon +".w0")
+        # Connect IK/Fk Switch to parent constraints:
+        for parCon in blendChainParentConstraints:
+            mc.connectAttr(ikFkSwitchAttr, parCon + ".w0")
+            mc.connectAttr(reversalNodeIkFk + ".output1D", parCon +".w1")
 
-    #     # Connect IK/FK Switch to control visibility:
-    #     for ctl in ikCtlsList:
-    #         mc.connectAttr(reversalNodeIkFk + ".output1D", ctl[0] + ".v")
-        
-    #     for ctl in fkCtlsList:
-    #          mc.connectAttr(ikFkSwitch[0] + ".ikFkSwitch", ctl[0] + ".v")
-  
+        # Connect IK/FK Switch to control visibility:
+        mc.connectAttr(reversalNodeIkFk + ".output1D", ikCtlsGrp + ".v")
+        mc.connectAttr(ikFkSwitchAttr, fkCtlsGrpList[0] + ".v")
 
- 
+
 
 main()
