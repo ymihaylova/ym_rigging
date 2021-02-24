@@ -97,50 +97,55 @@ class SpineComponent:
     def build(self, jointChain, curve):
         # Clusters and controls:
         spineCtls = []
+        spineCtlsGrps = []
         names = ["hips", "spineMid", "chest"]
         shapes = [HIPS_SHAPE_CVS, SPINEMID_SHAPE_CVS, CHEST_SHAPE_CVS]
         shapeKnotsList = [HIPS_SHAPE_KNOTS, SPINEMID_SHAPE_KNOTS, CHEST_SHAPE_KNOTS]
+        hipFkCtl, hipFkGrp = [], []
+        spineMidFkCtl, spineMidFkGrp = [], []
+        #Root Ctl:        
+        rootCtl, _, rootGrp=buildControl("C", "root", "C_spine00_JNT", \
+                shapeCVs=SPINEMID_SHAPE_CVS, shapeKnots=SPINEMID_SHAPE_KNOTS)
+        mc.scale(1.5, 1.5, 1.5, rootCtl +".cv[*]")
+        mc.rotate(0, 0, 0, rootGrp, ws=1)
 
         for counter, cvIDs in enumerate(["0:1", "2", "3:4"]):
             cvs = curve + ".cv[%s]" % cvIDs
 
             _, clusterHandle = mc.cluster(cvs, name="C_spine%s_CLS" % \
                             str(counter).zfill(2))
-            ctl, _, _ = buildControl("C", names[counter], clusterHandle, \
+            ctl, _, group = buildControl("C", names[counter], clusterHandle, \
                     shapeCVs=shapes[counter],shapeKnots=shapeKnotsList[counter], degree=3)
             if counter != 1:
                 #Create a "FK like" hip control
                 if counter == 0:
-                    fkCtl, _, _ = buildControl("C", "hipFk", clusterHandle, \
+                    hipFkCtl, _, hipFkGrp = buildControl("C", "hipFk", clusterHandle, \
                             shapeCVs=SPINEFK_SHAPE_CVS, shapeKnots=SPINEFK_SHAPE_KNOTS, colour=9)
-                    spineCtls.append(fkCtl)
                 # Create a hips/chest joint, reposition to ctl location and parent:
                 joint = mc.createNode("joint",name = "C_%s_JNT" % names[counter])
                 mc.delete(mc.parentConstraint(ctl, joint, mo=0))
                 mc.parent(joint, ctl)
             if counter == 1:
-                fkCtl, _, _ = buildControl("C", "spineMidFk", clusterHandle, \
+                spineMidFkCtl, _, spineMidFkGrp = buildControl("C", "spineMidFk", clusterHandle, \
                         shapeCVs=SPINEFK_SHAPE_CVS, shapeKnots=SPINEFK_SHAPE_KNOTS, colour=9)    
-                spineCtls.append(fkCtl)
             
             spineCtls.append(ctl)
+            spineCtlsGrps.append(group)
             # Parent cluster under ctl:
             mc.parent(clusterHandle, ctl)
 
             if not DEBUG_MODE:
                 mc.hide(joint, clusterHandle)
-        #Base Ctl:        
-        spineBaseCtl, _, spineBaseGrp=buildControl("C", "spineBase", "C_spine00_JNT", \
-                shapeCVs=SPINEMID_SHAPE_CVS, shapeKnots=SPINEMID_SHAPE_KNOTS)
-        spineCtls.append(spineBaseCtl)
-        mc.scale(1.5, 1.5, 1.5, spineBaseCtl +".cv[*]")
-        mc.rotate(0, 0, 0, spineBaseGrp, ws=1)
+        #Parenting Controls
+        mc.parent(hipFkGrp, spineCtlsGrps[0], rootCtl)
+        mc.parent(spineMidFkGrp, hipFkCtl)
+        mc.parent(spineCtlsGrps[1:], spineMidFkCtl)
+        mc.parent(jointChain[0], rootCtl)
         #Spine stretch setup
         #Claculating spine length  
         spineLen = mc.createNode("curveInfo", n="C_spineLen_INF")
         mc.connectAttr(curve +"Shape.worldSpace", spineLen + ".inputCurve")
         staticSpineLen = mc.getAttr(spineLen + ".arcLength")
-        print(staticSpineLen)
         #Calcualting stretch factor:
         stretchFactor = mc.createNode("multiplyDivide", n="C_spineStretchFactor_MDV")
         mc.connectAttr(spineLen + ".arcLength", stretchFactor + ".input1.input1X")
@@ -156,6 +161,8 @@ class SpineComponent:
         splineIkh, _ = mc.ikHandle(sj="C_spine00_JNT", ee="C_spine04_JNT", \
                     solver="ikSplineSolver", createCurve=0, curve=curve)
         splineIkh = mc.rename(splineIkh, "C_spine_IKH")
+        mc.hide(splineIkh)
+        mc.parent(splineIkh, rootCtl)
 
         # Advanced twist:
         mc.setAttr(splineIkh + ".dTwistControlEnable", 1)
@@ -192,7 +199,8 @@ def buildControl(side, name, guide=None, shapeCVs=[], shapeKnots=None, degree=1,
     group = mc.rename(group, "%s_%s_GRP" % (side, name))
 
     # #snap to guide
-    mc.delete(mc.parentConstraint(guide, group, maintainOffset=0))
+    if guide != None:
+        mc.delete(mc.parentConstraint(guide, group, maintainOffset=0))
     # Set colour
     mc.setAttr(control + ".overrideEnabled", 1)
     mc.setAttr(control + ".overrideColor", colour)
@@ -228,6 +236,10 @@ def buildLimb(side, name, parent):
         renamedIkChain.append(mc.rename(jnt, jnt.replace("_JNT", "Ik_JNT")[:-1]))
         
     ikChain = renamedIkChain
+
+    limbGrp = mc.group(blendChain[0], ikChain[0])
+    limbGrp = mc.rename(limbGrp, "%s_%s_GRP" % (side, name))
+    mc.parent(limbGrp, parent)
 
     if not DEBUG_MODE:
         mc.hide(blendChain, ikChain)
@@ -282,6 +294,14 @@ def main():
     mc.file("/Desktop/projectFolder/HPScripted/scenes/hp_body.ma", i=1)
     mc.file("/Desktop/projectFolder/HPScripted/scenes/hp_guides.ma", i=1)
 
+    #Housekeeping setup:
+    harryCtl, _, _ = buildControl("C", "harry", shapeCVs=SQUARE_SHAPE_CVS)
+    mc.scale(15, 15, 15, harryCtl + ".cv[*]")
+    ctlsGrp = mc.group(em=1)
+    ctlsGrp = mc.rename(ctlsGrp, "ctls_GRP")
+    rigGrp = mc.group(em=1)
+    rigGrp = mc.rename(rigGrp, "rig_GRP")
+
     # Build spine
     spine = SpineComponent(mc.ls("C_spine??_JNT"), "C_spine_CRV")
 
@@ -324,7 +344,7 @@ def main():
 
         ikCtlsGrp = mc.group(kneePoleVectorGrp, footIkCtlGrp, n="%s_legIkCtls_GRP" \
                  % side, w=1)
-
+        mc.parent(ikCtlsGrp, ctlsGrp)
         # Create parent constraints to bind skeleton:
         blendChainParentConstraints = parentConstrain(blendChain[:-1], \
                                 ikChain[:-1], fkCtlsList, mo=0)
@@ -357,6 +377,8 @@ def main():
         # Connect IK/FK Switch to control visibility:
         mc.connectAttr(reversalNodeIkFk + ".output1D", ikCtlsGrp + ".v")
         mc.connectAttr(ikFkSwitchAttr, fkCtlsGrpList[0] + ".v")
+        #Place switch in the hierarchy
+        mc.parent(ikFkSwitchGrp, "%s_leg_GRP" % side)
 
      # Build arm FK ctls. IK chain, Handle and Ctls 
     for side in "LR":
@@ -380,6 +402,7 @@ def main():
         mc.scale(6,6,6, wristIkCtl + ".cv[*]")
         mc.rotate(0,0,90, wristIkCtl + ".cv[*]", r=1)
         
+        
         # Create IK handle and parent to IK control:
         wristIkHandle, _ = mc.ikHandle(sj="%s_arm01Ik_JNT" % side, \
                         ee="%s_arm03Ik_JNT" % side, sol="ikRPsolver")
@@ -399,6 +422,7 @@ def main():
 
         ikCtlsGrp = mc.group(elbowPoleVectorGrp, wristIkGrp, n="%s_armIkCtls_GRP"\
                  % side, w=1)
+        mc.parent(ikCtlsGrp, ctlsGrp)
 
         # Create parent constraints to bind skeleton:
         blendChainParentConstraints = parentConstrain(blendChain[:-1], fkCtlsList,\
@@ -432,6 +456,14 @@ def main():
         mc.connectAttr(reversalNodeIkFk + ".output1D", ikCtlsGrp + ".v")
         mc.connectAttr(ikFkSwitchAttr, fkCtlsGrpList[0] + ".v")
 
-
+        mc.parent(ikFkSwitchGrp, "%s_arm_GRP" % side)
+    #Housekeeping:
+    #Geometry in hierarchy
+    mc.setAttr("C_geometry_GRP.inheritsTransform", 0)
+    mc.parent("C_geometry_GRP", harryCtl)
+    #Spine curve and root in hierarchy
+    mc.parent("C_root_GRP", harryCtl)
+    mc.parent("C_spine_CRV", harryCtl)
+    mc.setAttr("C_spine_CRV.inheritsTransform", 0)
 
 main()
