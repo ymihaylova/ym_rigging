@@ -75,6 +75,20 @@ SPINEMID_SHAPE_CVS = [[11.97727846744739, 7.333967868827961e-16, -9.744127355522
                     [-11.977278467447366, 7.333967868827967e-16, -9.744127355522796]]
 SPINEMID_SHAPE_KNOTS = [-2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
 
+SPINEFK_SHAPE_CVS = [[13.432212793806672, 5.639242577694782e-16, -6.602030440243778], 
+                    [-1.8407667716785875e-15, 7.97509333488778e-16, -9.33668098779277], 
+                    [-13.432212793806666, 5.639242577694787e-16, -6.602030440243781], 
+                    [-18.996017505682797, 2.310982527368571e-31, -1.9511143632069017e-15], 
+                    [-13.432212793806666, -5.639242577694785e-16, 6.6020304402437775], 
+                    [-5.397419113399601e-15, -7.97509333488778e-16, 9.336680987792771], 
+                    [13.432212793806665, -5.639242577694787e-16, 6.602030440243781], 
+                    [18.996017505682797, -4.283438187457663e-31, 5.769171773668925e-15], 
+                    [13.432212793806672, 5.639242577694782e-16, -6.602030440243778], 
+                    [-1.8407667716785875e-15, 7.97509333488778e-16, -9.33668098779277], 
+                    [-13.432212793806666, 5.639242577694787e-16, -6.602030440243781]]
+SPINEFK_SHAPE_KNOTS = [-2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+ 
+
 
 class SpineComponent:
     def __init__(self, jointChain, curve):
@@ -95,10 +109,19 @@ class SpineComponent:
             ctl, _, _ = buildControl("C", names[counter], clusterHandle, \
                     shapeCVs=shapes[counter],shapeKnots=shapeKnotsList[counter], degree=3)
             if counter != 1:
+                #Create a "FK like" hip control
+                if counter == 0:
+                    fkCtl, _, _ = buildControl("C", "hipFk", clusterHandle, \
+                            shapeCVs=SPINEFK_SHAPE_CVS, shapeKnots=SPINEFK_SHAPE_KNOTS, colour=9)
+                    spineCtls.append(fkCtl)
                 # Create a hips/chest joint, reposition to ctl location and parent:
                 joint = mc.createNode("joint",name = "C_%s_JNT" % names[counter])
                 mc.delete(mc.parentConstraint(ctl, joint, mo=0))
                 mc.parent(joint, ctl)
+            if counter == 1:
+                fkCtl, _, _ = buildControl("C", "spineMidFk", clusterHandle, \
+                        shapeCVs=SPINEFK_SHAPE_CVS, shapeKnots=SPINEFK_SHAPE_KNOTS, colour=9)    
+                spineCtls.append(fkCtl)
             
             spineCtls.append(ctl)
             # Parent cluster under ctl:
@@ -106,7 +129,29 @@ class SpineComponent:
 
             if not DEBUG_MODE:
                 mc.hide(joint, clusterHandle)
-            
+        #Base Ctl:        
+        spineBaseCtl, _, spineBaseGrp=buildControl("C", "spineBase", "C_spine00_JNT", \
+                shapeCVs=SPINEMID_SHAPE_CVS, shapeKnots=SPINEMID_SHAPE_KNOTS)
+        spineCtls.append(spineBaseCtl)
+        mc.scale(1.5, 1.5, 1.5, spineBaseCtl +".cv[*]")
+        mc.rotate(0, 0, 0, spineBaseGrp, ws=1)
+        #Spine stretch setup
+        #Claculating spine length  
+        spineLen = mc.createNode("curveInfo", n="C_spineLen_INF")
+        mc.connectAttr(curve +"Shape.worldSpace", spineLen + ".inputCurve")
+        staticSpineLen = mc.getAttr(spineLen + ".arcLength")
+        print(staticSpineLen)
+        #Calcualting stretch factor:
+        stretchFactor = mc.createNode("multiplyDivide", n="C_spineStretchFactor_MDV")
+        mc.connectAttr(spineLen + ".arcLength", stretchFactor + ".input1.input1X")
+        mc.setAttr(stretchFactor + ".input2.input2X", staticSpineLen)
+        mc.setAttr(stretchFactor +".operation", 2)
+        #Stretching Joints
+        jointStretch = mc.createNode("multiplyDivide", n="C_spineJointStretch_MDV")
+        mc.connectAttr(stretchFactor + ".output.outputX", jointStretch + ".input1.input1X")
+        mc.setAttr(jointStretch + ".input2.input2X", mc.getAttr("C_spine01_JNT.tx"))
+        for jnt in jointChain:
+            mc.connectAttr(jointStretch + ".output.outputX", jnt + ".tx")
         #Spline IK handle:
         splineIkh, _ = mc.ikHandle(sj="C_spine00_JNT", ee="C_spine04_JNT", \
                     solver="ikSplineSolver", createCurve=0, curve=curve)
@@ -127,7 +172,7 @@ def addAttr(*args, **kwargs):
     
     return args[0] + "." + kwargs["ln"] 
 
-def buildControl(side, name, guide=None, shapeCVs=[], shapeKnots=None, degree=1, colour=17, offset = []):
+def buildControl(side, name, guide=None, shapeCVs=[], shapeKnots=None, degree=1, colour=17):
     if not shapeCVs:
         control = mc.circle(constructionHistory=0)[0]
     else:
@@ -137,6 +182,9 @@ def buildControl(side, name, guide=None, shapeCVs=[], shapeKnots=None, degree=1,
             control = mc.curve(p=shapeCVs, knot=shapeKnots, periodic=1)
     offset = mc.group(control)
     group = mc.group(offset)
+    #Temporary ugly fix:
+    mc.xform(offset, ztp=1)
+    mc.xform(group, ztp=1)
 
     # NOTE: Check whether name exists and handle it if it does
     control = mc.rename(control, "%s_%s_CTL" % (side, name))
@@ -145,9 +193,6 @@ def buildControl(side, name, guide=None, shapeCVs=[], shapeKnots=None, degree=1,
 
     # #snap to guide
     mc.delete(mc.parentConstraint(guide, group, maintainOffset=0))
-    # if offset != []:
-    #     mc.move(offset[0], offset[1], offset[2], group, relative=True)
-
     # Set colour
     mc.setAttr(control + ".overrideEnabled", 1)
     mc.setAttr(control + ".overrideColor", colour)
