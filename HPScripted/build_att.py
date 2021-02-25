@@ -246,6 +246,62 @@ def buildLimb(side, name, parent):
 
     return blendChain, fkCtlsList, fkCtlsOfsList, fkCtlsGrpList, ikChain
 
+def limbStretch(side, name, startEnd, endControl, conditional=1):
+    #NOTE: cycles as 1st transform is currently parented under 1st joint - 
+    #to be moved to a IK base ctl when this is created.
+    #Create a transform to locate start of stretchable chain
+    print(startEnd)
+    startPoint = mc.createNode("transform", n=startEnd[0][:-4] + "_TRN")
+    mc.parent(startPoint, startEnd[0], r=1) #Parent to start joint and snap location 
+    #Create a transform to locate end of stretchable chain
+    endPoint = mc.createNode("transform", n=startEnd[-1][:-4]+"_TRN")
+    mc.parent(endPoint, endControl, r=1)
+    
+    #Calculate actual length:
+    length = 0
+    for jnt in startEnd[1:]:
+        length += mc.getAttr(jnt + ".tx")
+        print(length)
+    # Calculate stretch factor
+    stretchDistance = mc.createNode("distanceBetween", n="%s_%sStretched_DB" %(side, name))
+    mc.connectAttr(startPoint + ".worldMatrix", stretchDistance + ".inMatrix1")
+    mc.connectAttr(endPoint + ".worldMatrix", stretchDistance + ".inMatrix2")
+    stretchFactor = mc.createNode("multiplyDivide", n="%s_%sStretchFactor_MDV" %(side, name))
+    mc.connectAttr(stretchDistance + ".distance", stretchFactor + ".input1.input1X")
+    mc.setAttr(stretchFactor + ".input2.input2X", length)
+    mc.setAttr(stretchFactor + ".operation", 2)
+    
+    if conditional == 0:
+        jointStretchMDVsList = []
+        for jnt in startEnd[1:]:
+            jointStretch = mc.createNode("multiplyDivide", n="%s_%s%sIndividualStretch_MDV" % (side, name, str(startEnd.index(jnt)).zfill(2)))
+            jntTx = mc.getAttr(jnt + ".tx")
+            mc.setAttr(jointStretch + ".input1.input1X", jntTx)
+            mc.connectAttr(stretchFactor + ".output.outputX", jointStretch + ".input2.input2X")
+            mc.connectAttr(jointStretch + ".output.outputX", jnt + ".tx")
+            jointStretchMDVsList.append(jointStretch)
+    
+    else:
+        isLimbStretched = mc.createNode("condition", n="%s_%sIsStretched_CD" %(side, name))
+        mc.connectAttr(stretchFactor + ".output.outputX", isLimbStretched + ".firstTerm")
+        mc.connectAttr(stretchFactor + ".output.outputX", isLimbStretched + ".colorIfTrue.colorIfTrueR")
+        mc.setAttr(isLimbStretched + ".secondTerm", 1)
+        mc.setAttr(isLimbStretched + ".operation", 2)
+
+        jointStretchMDVsList = []
+        for jnt in startEnd[1:]:
+            jointStretch = mc.createNode("multiplyDivide", n="%s_%s%sIndividualStretch_MDV" % (side, name, str(startEnd.index(jnt)).zfill(2)))
+            jntTx = mc.getAttr(jnt + ".tx")
+            mc.setAttr(jointStretch + ".input1.input1X", jntTx)
+            mc.connectAttr(isLimbStretched + ".outColorR", jointStretch + ".input2.input2X")
+            mc.connectAttr(jointStretch + ".output.outputX", jnt + ".tx")
+            jointStretchMDVsList.append(jointStretch) 
+    # mc.setAttr(jointStretch + ".input2.input2X", mc.getAttr("C_spine01_JNT.tx"))
+    
+    # for jnt in jointChain:
+    #     mc.connectAttr(jointStretch + ".output.outputX", jnt + ".tx")
+
+
 def getPoleVectorPosition(rootPos, midPos, endPos):
     rootJntVector = om2.MVector(rootPos[0], rootPos[1], rootPos[2])
     midJntVector = om2.MVector(midPos[0], midPos[1], midPos[2])
@@ -345,6 +401,9 @@ def main():
         ikCtlsGrp = mc.group(kneePoleVectorGrp, footIkCtlGrp, n="%s_legIkCtls_GRP" \
                  % side, w=1)
         mc.parent(ikCtlsGrp, ctlsGrp)
+
+        #Make limb stretchable:
+        limbStretch(side, "leg", ikChain[:-2], footIkCtl)
         # Create parent constraints to bind skeleton:
         blendChainParentConstraints = parentConstrain(blendChain[:-1], \
                                 ikChain[:-1], fkCtlsList, mo=0)
@@ -401,7 +460,7 @@ def main():
                 shapeCVs=SQUARE_SHAPE_CVS, colour=18 if side=="L" else 20)
         mc.scale(6,6,6, wristIkCtl + ".cv[*]")
         mc.rotate(0,0,90, wristIkCtl + ".cv[*]", r=1)
-        
+
         
         # Create IK handle and parent to IK control:
         wristIkHandle, _ = mc.ikHandle(sj="%s_arm01Ik_JNT" % side, \
@@ -420,6 +479,9 @@ def main():
                         elbowPoleVectorGrp)
         mc.poleVectorConstraint(elbowPoleVectorCtl, wristIkHandle)
 
+        # #Make limb stretchable:
+        limbStretch(side, "arm", ikChain[1:-1], wristIkCtl)
+        
         ikCtlsGrp = mc.group(elbowPoleVectorGrp, wristIkGrp, n="%s_armIkCtls_GRP"\
                  % side, w=1)
         mc.parent(ikCtlsGrp, ctlsGrp)
