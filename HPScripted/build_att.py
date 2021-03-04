@@ -1,6 +1,6 @@
 from maya import cmds as mc
 from maya.api import OpenMaya as om2
-# from maya import ctl_shapes as cs
+import ctl_shapes as cs
 
 DEBUG_MODE = True
 DIAMOND_SHAPE_CVS = [[-1.0, 0.0, 0.0],
@@ -261,7 +261,7 @@ def limbStretch(side, name, startEnd, endControl, conditional=1):
     length = 0
     for jnt in startEnd[1:]:
         length += mc.getAttr(jnt + ".tx")
-        print(length)
+
     # Calculate stretch factor
     stretchDistance = mc.createNode("distanceBetween", n="%s_%sStretched_DB" %(side, name))
     mc.connectAttr(startPoint + ".worldMatrix", stretchDistance + ".inMatrix1")

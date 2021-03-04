@@ -5,3 +5,44 @@ If the ankle joint retains a ~180 orientation due to it being world oriented, th
 irregular shapes - pivot issues
 
 curve
+Index:
+
+10/01/2021
+Spine:
+01:00:
+Clusters - 
+0140: spline IK rotation informatin. 
+(1. Elbow lock?
+2. What is the 4th element of the matrix )
+13/01/2021:
+Head and Neck
+review of  spine and arms
+17/01/2020
+PAINTING SKIN WEIGHTS!
+21/01/2021
+Review and skinning issues
+24/01/2021
+Feet rigs:
+notes:
+Pseudocode
+1. create a transform at the ball of the foot
+2. parent it to foot ctls
+3. parent ik handle under foot ctls
+4. use the ankle transform  and parent it under the ball of foot
+group ikh and ankle lock
+5. IK handle (single chain solver)Ankle to ball of foot 
+6. Parent IKH under the ball of the foot transform
+7. Negating ball rotation  in toes using an animblendnodeadditiveda
+set weight WA to -1
+8. create a toe lift pivot transforms and parent it to the ik ctls
+9. parent everything under the toe lift transform
+10. roll, Ball Straight, Toe lift attribute with double angle
+mc.addAttr("CTL", ln= "roll", at="doubleAngle", k=1)
+
+
+11. Roll connect to rotate x
+12. CUSTOM NODES?
+13. remap value from roll to toe loc. 
+14. remap value 
+15. Heel transform
+41:00 - HOW TO SELECT THE VERTS FOR TWO DIFFERENT GEOS
