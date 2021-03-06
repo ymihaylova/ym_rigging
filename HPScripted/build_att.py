@@ -1,6 +1,6 @@
 from maya import cmds as mc
 from maya.api import OpenMaya as om2
-import ctl_shapes as cs
+from ym_rigging.general import ctl_shapes as cs
 
 DEBUG_MODE = True
 DIAMOND_SHAPE_CVS = [[-1.0, 0.0, 0.0],
@@ -49,17 +49,9 @@ HIPS_SHAPE_CVS =  [[13.521550917395674, 3.1581145713258447, -8.76270854476018],
                     [-13.52155091739566, 3.1581145713258447, -8.76270854476019]]
 HIPS_SHAPE_KNOTS = [-2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
 
-CHEST_SHAPE_CVS = [[12.157922912047004, 23.28205818338543, -15.489740553421376], 
-                    [-5.519651062259706e-15, -9.458901538787543, -15.583216846085413], 
-                    [-12.157922912046995, 23.28205818338543, -15.489740553421377], 
-                    [-12.226821724328058, 25.949710441420194, -6.616584791811977], 
-                    [-12.157922912046995, 23.28205818338543, 2.2565709697974317], 
-                    [-1.0890122449525352e-14, -9.458901538787543, 9.513857592148566], 
-                    [12.157922912046988, 23.28205818338543, 2.2565709697974334], 
-                    [12.226821724328058, 25.949710441420194, -6.616584791811967], 
-                    [12.157922912047004, 23.28205818338543, -15.489740553421376], 
-                    [-5.519651062259706e-15, -9.458901538787543, -15.583216846085413], 
-                    [-12.157922912046995, 23.28205818338543, -15.489740553421377]]
+CHEST_SHAPE_CVS = [[12.157922912047004, 15.591789515925996, -11.572855216376771], 
+                [-5.519651062259706e-15, -17.14917020624698, -11.666331509040809], [-12.157922912046995, 15.591789515925996, -11.572855216376773], [-12.226821724328058, 18.25944177396076, -2.6996994547673734], [-12.157922912046995, 15.591789515925996, 6.173456306842036], [-1.0890122449525352e-14, -17.14917020624698, 13.43074292919317], [12.157922912046988, 15.591789515925996, 6.173456306842038], [12.226821724328058, 18.25944177396076, -2.6996994547673627], [12.157922912047004, 15.591789515925996, -11.572855216376771], [-5.519651062259706e-15, -17.14917020624698, -11.666331509040809], [-12.157922912046995, 15.591789515925996, -11.572855216376773]]
+[-2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
 CHEST_SHAPE_KNOTS = [-2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
 
 SPINEMID_SHAPE_CVS = [[11.97727846744739, 7.333967868827961e-16, -9.744127355522792],
@@ -250,7 +242,7 @@ def limbStretch(side, name, startEnd, endControl, conditional=1):
     #NOTE: cycles as 1st transform is currently parented under 1st joint - 
     #to be moved to a IK base ctl when this is created.
     #Create a transform to locate start of stretchable chain
-    print(startEnd)
+    # print(startEnd)
     startPoint = mc.createNode("transform", n=startEnd[0][:-4] + "_TRN")
     mc.parent(startPoint, startEnd[0], r=1) #Parent to start joint and snap location 
     #Create a transform to locate end of stretchable chain
@@ -335,14 +327,25 @@ def getIkhPoleVecPos(ikHandle):
 
     return poleVectorPos
 
-def parentConstrain(driven, *args, **kwargs):
+def blendChainConstraints(driven, skipTranslate, *args, **kwargs):
     constraintsList = []
-    for arg in args:
-        for comp, driver in zip(driven, arg):
-            parCon = mc.parentConstraint(driver, comp, **kwargs)[0]
-            if parCon not in constraintsList:
-                constraintsList.append(parCon)
+    for transforms in zip(driven, *args):
+        if transforms[0] != skipTranslate:
+            parCon = mc.parentConstraint(transforms[1:], transforms[0], **kwargs)[0]
+        else:
+            parCon = mc.parentConstraint(transforms[1:], transforms[0],  st=["x", "y", "z"], **kwargs)[0]
+        if parCon not in constraintsList: 
+            constraintsList.append(parCon)
     return constraintsList
+
+def blendTranslations(name, blendJoint, ikJoint, ikFkSwitchAttr):
+    ikJointTranslate = ikJoint + ".translateX"
+    staticLen = mc.getAttr(ikJointTranslate)
+    translateBlendNode = mc.createNode("blendTwoAttr", n=name)
+    mc.connectAttr(ikJointTranslate, translateBlendNode+".input[0]")
+    mc.setAttr(translateBlendNode+".input[1]", staticLen)
+    mc.connectAttr(ikFkSwitchAttr, translateBlendNode + ".attributesBlender")
+    mc.connectAttr(translateBlendNode+".output", blendJoint + ".translateX")
 
 def main():
     #Create a new file and import model and guides 
@@ -404,10 +407,6 @@ def main():
 
         #Make limb stretchable:
         limbStretch(side, "leg", ikChain[:-2], footIkCtl)
-        # Create parent constraints to bind skeleton:
-        blendChainParentConstraints = parentConstrain(blendChain[:-1], \
-                                ikChain[:-1], fkCtlsList, mo=0)
-        
         # Create and position IK/FK Switch
         ikFkSwitchCtl, ikFkSwitchOfs, ikFkSwitchGrp = buildControl(side, 
                 "legIkFkSwitch", "%s_leg02_JNT" % side, shapeCVs=SWITCH_SHAPE_CVS)
@@ -428,11 +427,16 @@ def main():
         mc.setAttr(reversalNodeIkFk + ".input1D[0]", 1)
         mc.connectAttr(ikFkSwitchAttr, reversalNodeIkFk + ".input1D[1]")
 
+        #Create parent constraints for the blend chain:
+        blendChainParentConstraints = blendChainConstraints(blendChain[:-1], \
+                            "%s_leg02_JNT" % side, ikChain[:-1], fkCtlsList, mo=0)
         # Connect IK/Fk Switch to parent constraints:
         for parCon in blendChainParentConstraints:
             mc.connectAttr(ikFkSwitchAttr, parCon + ".w1")
             mc.connectAttr(reversalNodeIkFk + ".output1D", parCon +".w0")
-
+        # Create a blend two attr node and connect IK/FK switch to it:
+        # mc.connectAttr(reversalNodeIkFk + ".output1D", blendTranslationsNode + ".attributesBlender")
+        blendTranslations("%s_leg02_BTA" % side, "%s_leg02_JNT" % side, "%s_leg02Ik_JNT" % side, ikFkSwitchAttr)
         # Connect IK/FK Switch to control visibility:
         mc.connectAttr(reversalNodeIkFk + ".output1D", ikCtlsGrp + ".v")
         mc.connectAttr(ikFkSwitchAttr, fkCtlsGrpList[0] + ".v")
@@ -440,85 +444,85 @@ def main():
         mc.parent(ikFkSwitchGrp, "%s_leg_GRP" % side)
 
      # Build arm FK ctls. IK chain, Handle and Ctls 
-    for side in "LR":
-                # Build IK chain and FK ctls
-        blendChain, fkCtlsList, fkCtlsOfsList, fkCtlsGrpList, ikChain = buildLimb(side, "arm", "C_chest_CTL")
-        #Re-size and position FK Ctls
-        for fkCtl in fkCtlsList:
-            mc.scale(6,6,6,fkCtl + ".cv[*]")
-            mc.rotate(0,90,0,fkCtl + ".cv[*]", r=1)
+    # for side in "LR":
+    #             # Build IK chain and FK ctls
+    #     blendChain, fkCtlsList, fkCtlsOfsList, fkCtlsGrpList, ikChain = buildLimb(side, "arm", "C_chest_CTL")
+    #     #Re-size and position FK Ctls
+    #     for fkCtl in fkCtlsList:
+    #         mc.scale(6,6,6,fkCtl + ".cv[*]")
+    #         mc.rotate(0,90,0,fkCtl + ".cv[*]", r=1)
 
-            if fkCtl == fkCtlsList[0]: # move the clavicle FK control CVs for visual clarity
-                if side =="L":
-                    mc.move(3, 0, 0, fkCtl + ".cv[*]", ws=1, r=1)
-                else:
-                    mc.move(-3, 0, 0, fkCtl + ".cv[*]", ws=1, r=1)
-                mc.scale(1.5,1.5,1.5,fkCtl + ".cv[*]")
+    #         if fkCtl == fkCtlsList[0]: # move the clavicle FK control CVs for visual clarity
+    #             if side =="L":
+    #                 mc.move(3, 0, 0, fkCtl + ".cv[*]", ws=1, r=1)
+    #             else:
+    #                 mc.move(-3, 0, 0, fkCtl + ".cv[*]", ws=1, r=1)
+    #             mc.scale(1.5,1.5,1.5,fkCtl + ".cv[*]")
 
-        # Build IK wrist control:
-        wristIkCtl, _, wristIkGrp = buildControl(side, "arm03Ik", "%s_arm03Ik_JNT" % side, 
-                shapeCVs=SQUARE_SHAPE_CVS, colour=18 if side=="L" else 20)
-        mc.scale(6,6,6, wristIkCtl + ".cv[*]")
-        mc.rotate(0,0,90, wristIkCtl + ".cv[*]", r=1)
+    #     # Build IK wrist control:
+    #     wristIkCtl, _, wristIkGrp = buildControl(side, "arm03Ik", "%s_arm03Ik_JNT" % side, 
+    #             shapeCVs=SQUARE_SHAPE_CVS, colour=18 if side=="L" else 20)
+    #     mc.scale(6,6,6, wristIkCtl + ".cv[*]")
+    #     mc.rotate(0,0,90, wristIkCtl + ".cv[*]", r=1)
 
         
-        # Create IK handle and parent to IK control:
-        wristIkHandle, _ = mc.ikHandle(sj="%s_arm01Ik_JNT" % side, \
-                        ee="%s_arm03Ik_JNT" % side, sol="ikRPsolver")
-        wristIkHandle = mc.rename(wristIkHandle, "%s_arm03_IKH" % side)
-        mc.parent(wristIkHandle, wristIkCtl)
+    #     # Create IK handle and parent to IK control:
+    #     wristIkHandle, _ = mc.ikHandle(sj="%s_arm01Ik_JNT" % side, \
+    #                     ee="%s_arm03Ik_JNT" % side, sol="ikRPsolver")
+    #     wristIkHandle = mc.rename(wristIkHandle, "%s_arm03_IKH" % side)
+    #     mc.parent(wristIkHandle, wristIkCtl)
 
-        # Build Pole Vector control and create pole vector constraint to leg02IK:
-        elbowPoleVectorCtl, _, elbowPoleVectorGrp = buildControl(side, \
-                            "elbowPoleVector", "%s_arm02Ik_JNT" % side,\
-                            shapeCVs=DIAMOND_SHAPE_CVS, colour=18 if side=="L" else 20)
+    #     # Build Pole Vector control and create pole vector constraint to leg02IK:
+    #     elbowPoleVectorCtl, _, elbowPoleVectorGrp = buildControl(side, \
+    #                         "elbowPoleVector", "%s_arm02Ik_JNT" % side,\
+    #                         shapeCVs=DIAMOND_SHAPE_CVS, colour=18 if side=="L" else 20)
         
-        elbowPoleVectorPos = getIkhPoleVecPos(wristIkHandle)
-        mc.scale(4,4,4, elbowPoleVectorCtl + ".cv[*]")
-        mc.move(elbowPoleVectorPos.x, elbowPoleVectorPos.y, elbowPoleVectorPos.z, 
-                        elbowPoleVectorGrp)
-        mc.poleVectorConstraint(elbowPoleVectorCtl, wristIkHandle)
+    #     elbowPoleVectorPos = getIkhPoleVecPos(wristIkHandle)
+    #     mc.scale(4,4,4, elbowPoleVectorCtl + ".cv[*]")
+    #     mc.move(elbowPoleVectorPos.x, elbowPoleVectorPos.y, elbowPoleVectorPos.z, 
+    #                     elbowPoleVectorGrp)
+    #     mc.poleVectorConstraint(elbowPoleVectorCtl, wristIkHandle)
 
-        # #Make limb stretchable:
-        limbStretch(side, "arm", ikChain[1:-1], wristIkCtl)
+    #     # #Make limb stretchable:
+    #     limbStretch(side, "arm", ikChain[1:-1], wristIkCtl)
         
-        ikCtlsGrp = mc.group(elbowPoleVectorGrp, wristIkGrp, n="%s_armIkCtls_GRP"\
-                 % side, w=1)
-        mc.parent(ikCtlsGrp, ctlsGrp)
+    #     ikCtlsGrp = mc.group(elbowPoleVectorGrp, wristIkGrp, n="%s_armIkCtls_GRP"\
+    #              % side, w=1)
+    #     mc.parent(ikCtlsGrp, ctlsGrp)
 
-        # Create parent constraints to bind skeleton:
-        blendChainParentConstraints = parentConstrain(blendChain[:-1], fkCtlsList,\
-                                ikChain[:-1], mo=0)
+    #     # Create parent constraints to bind skeleton:
+    #     blendChainParentConstraints, node = blendChainConstraints(blendChain[:-1],"%s_" fkCtlsList,\
+    #                             ikChain[:-1], mo=0)
         
-        # Create and position IK/FK Switch 
-        # NOTE: to be turned into a function useable by both arms and legs?
-        # Create and position IK/FK Switch
-        ikFkSwitchCtl, ikFkSwitchOfs, ikFkSwitchGrp = buildControl(side, 
-                "armIkFkSwitch", "%s_arm03_JNT" % side, shapeCVs=SWITCH_SHAPE_CVS)
-        mc.move(0, 10, -10, ikFkSwitchGrp, r=1, ws=1)
-        mc.rotate(90, 0, 0, ikFkSwitchGrp, ws=1, r=1)
-        mc.parentConstraint("%s_arm03_JNT" % side, ikFkSwitchOfs, mo=1)
+    #     # Create and position IK/FK Switch 
+    #     # NOTE: to be turned into a function useable by both arms and legs?
+    #     # Create and position IK/FK Switch
+    #     ikFkSwitchCtl, ikFkSwitchOfs, ikFkSwitchGrp = buildControl(side, 
+    #             "armIkFkSwitch", "%s_arm03_JNT" % side, shapeCVs=SWITCH_SHAPE_CVS)
+    #     mc.move(0, 10, -10, ikFkSwitchGrp, r=1, ws=1)
+    #     mc.rotate(90, 0, 0, ikFkSwitchGrp, ws=1, r=1)
+    #     mc.parentConstraint("%s_arm03_JNT" % side, ikFkSwitchOfs, mo=1)
     
-        ikFkSwitchAttr = addAttr(ikFkSwitchCtl, at="float", k=1, ln="ikFkSwitch",
-                     max=1, min=0, dv=0)
+    #     ikFkSwitchAttr = addAttr(ikFkSwitchCtl, at="float", k=1, ln="ikFkSwitch",
+    #                  max=1, min=0, dv=0)
 
-        # Reverse IK FK switch attribute's value:
-        reversalNodeIkFk = mc.createNode("plusMinusAverage", 
-                        n="%s_armIkFkReversedValue_PMA" % side)
-        mc.setAttr(reversalNodeIkFk + ".operation", 2)
-        mc.setAttr(reversalNodeIkFk + ".input1D[0]", 1)
-        mc.connectAttr(ikFkSwitchAttr, reversalNodeIkFk + ".input1D[1]")
+    #     # Reverse IK FK switch attribute's value:
+    #     reversalNodeIkFk = mc.createNode("plusMinusAverage", 
+    #                     n="%s_armIkFkReversedValue_PMA" % side)
+    #     mc.setAttr(reversalNodeIkFk + ".operation", 2)
+    #     mc.setAttr(reversalNodeIkFk + ".input1D[0]", 1)
+    #     mc.connectAttr(ikFkSwitchAttr, reversalNodeIkFk + ".input1D[1]")
 
-        # Connect IK/Fk Switch to parent constraints:
-        for parCon in blendChainParentConstraints:
-            mc.connectAttr(ikFkSwitchAttr, parCon + ".w0")
-            mc.connectAttr(reversalNodeIkFk + ".output1D", parCon +".w1")
+    #     # Connect IK/Fk Switch to parent constraints:
+    #     for parCon in blendChainParentConstraints:
+    #         mc.connectAttr(ikFkSwitchAttr, parCon + ".w0")
+    #         mc.connectAttr(reversalNodeIkFk + ".output1D", parCon +".w1")
 
-        # Connect IK/FK Switch to control visibility:
-        mc.connectAttr(reversalNodeIkFk + ".output1D", ikCtlsGrp + ".v")
-        mc.connectAttr(ikFkSwitchAttr, fkCtlsGrpList[0] + ".v")
+    #     # Connect IK/FK Switch to control visibility:
+    #     mc.connectAttr(reversalNodeIkFk + ".output1D", ikCtlsGrp + ".v")
+    #     mc.connectAttr(ikFkSwitchAttr, fkCtlsGrpList[0] + ".v")
 
-        mc.parent(ikFkSwitchGrp, "%s_arm_GRP" % side)
+    #     mc.parent(ikFkSwitchGrp, "%s_arm_GRP" % side)
     #Housekeeping:
     #Geometry in hierarchy
     mc.setAttr("C_geometry_GRP.inheritsTransform", 0)
