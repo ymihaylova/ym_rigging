@@ -205,6 +205,7 @@ def buildLimb(side, name, parent):
     fkCtlsOfsList =[]
     fkCtlsGrpList = []
     prevFkCtl, prevFkCtlGrp = None, None
+    ikHandle, ikCtl, ikCtlGrp, ikBaseCtl = None, None, None, None
 
     for jntId in range(len(blendChain)-1):
         fkCtl, fkCtlOfs, fkCtlGrp = buildControl(side, "%s%sFk" % (name, \
@@ -220,6 +221,28 @@ def buildLimb(side, name, parent):
         fkCtlsOfsList.append(fkCtlOfs)
         fkCtlsGrpList.append(fkCtlGrp)
         prevFkCtl, prevFkCtlGrp = fkCtl, fkCtlGrp
+        #Adjust positioning of controls for the leg:
+    if name == "leg":
+            for ctl in fkCtlsList:
+                mc.scale(6,6,6,ctl + ".cv[*]")
+                
+                if ctl != fkCtlsList[-1] : # omit rotating the toe FK control CVs 
+                    mc.rotate(90,0,0,ctl + ".cv[*]", ws=1)
+
+                if ctl == fkCtlsList[0] : # move the hip FK control CVs for visual clarity
+                    mc.move(0, -8, 0, ctl + ".cv[*]", ws=1, r=1)
+
+    if name == "arm":
+        for fkCtl in fkCtlsList:
+            mc.scale(6,6,6,fkCtl + ".cv[*]")
+            mc.rotate(0,90,0,fkCtl + ".cv[*]", r=1)
+
+            if fkCtl == fkCtlsList[0]: # move the clavicle FK control CVs for visual clarity
+                if side =="L":
+                    mc.move(3, 0, 0, fkCtl + ".cv[*]", ws=1, r=1)
+                else:
+                    mc.move(-3, 0, 0, fkCtl + ".cv[*]", ws=1, r=1)
+                mc.scale(1.5,1.5,1.5,fkCtl + ".cv[*]")
 
     # Create IK copy of the blend chain
     ikChain = mc.duplicate("%s_%s00_JNT" % (side, name), renameChildren=1)
@@ -233,18 +256,55 @@ def buildLimb(side, name, parent):
     limbGrp = mc.rename(limbGrp, "%s_%s_GRP" % (side, name))
     mc.parent(limbGrp, parent)
 
+    #Create IK ctl and handle for the leg:
+    if name == "leg":
+        ikBaseCtl, _, ikBaseCtlGrp = buildControl(side, "leg00Ik", "%s_leg00Ik_JNT"
+                                 % side, shapeCVs=SQUARE_SHAPE_CVS, colour=18 if 
+                                 side=="L" else 20)
+        mc.parent(ikBaseCtlGrp, parent)
+        mc.scale(6,6,6, ikBaseCtl + ".cv[*]")
+        mc.rotate(0,0,90,ikBaseCtl + ".cv[*]", ws=1)
+        mc.move(0, -8, 0, ikBaseCtl + ".cv[*]", ws=1, r=1)
+        ikCtl, _, ikCtlGrp = buildControl(side, "leg02Ik", "%s_leg02Ik_JNT"
+                                 % side, shapeCVs=SQUARE_SHAPE_CVS, colour=18 if 
+                                 side=="L" else 20)
+        mc.scale(6,6,6, ikCtl + ".cv[*]")
+        mc.parent(ikChain[0], ikBaseCtl)
+        # Create IK handle and parent to IK control:
+        ikHandle, _ = mc.ikHandle(sj="%s_leg00Ik_JNT" % side, 
+                    ee="%s_leg02Ik_JNT" % side, sol="ikRPsolver")
+        ikHandle = mc.rename(ikHandle, "%s_leg02_IKH" % side)
+        mc.parent(ikHandle, ikCtl)
+    #Create IK ctl and handle for the arm:
+    if name == "arm":
+        ikBaseCtl, _, ikBaseCtlGrp = buildControl(side, "arm01Ik", "%s_arm01Ik_JNT"
+                                % side, shapeCVs=SQUARE_SHAPE_CVS, colour=18 if 
+                                side=="L" else 20)
+        mc.parent(ikBaseCtlGrp, parent)
+        mc.parent(ikChain[0], ikBaseCtl)
+        mc.scale(6,6,6, ikBaseCtl + ".cv[*]")
+        mc.rotate(0,0,90, ikBaseCtl + ".cv[*]", r=1)
+
+        ikCtl, _, ikCtlGrp = buildControl(side, "arm03Ik", "%s_arm03Ik_JNT" % side, 
+                shapeCVs=SQUARE_SHAPE_CVS, colour=18 if side=="L" else 20)
+        mc.scale(6,6,6, ikCtl + ".cv[*]")
+        mc.rotate(0,0,90, ikCtl + ".cv[*]", r=1)
+
+        
+        # Create IK handle and parent to IK control:
+        ikHandle, _ = mc.ikHandle(sj="%s_arm01Ik_JNT" % side, \
+                        ee="%s_arm03Ik_JNT" % side, sol="ikRPsolver")
+        ikHandle = mc.rename(ikHandle, "%s_arm03_IKH" % side)
+        mc.parent(ikHandle, ikCtl)
+
     if not DEBUG_MODE:
         mc.hide(blendChain, ikChain)
 
-    return blendChain, fkCtlsList, fkCtlsOfsList, fkCtlsGrpList, ikChain
+    return blendChain, fkCtlsList, fkCtlsOfsList, fkCtlsGrpList, ikChain, ikCtl, ikCtlGrp, ikHandle, ikBaseCtl
 
-def limbStretch(side, name, startEnd, endControl, conditional=1):
-    #NOTE: cycles as 1st transform is currently parented under 1st joint - 
-    #to be moved to a IK base ctl when this is created.
-    #Create a transform to locate start of stretchable chain
-    # print(startEnd)
+def limbStretch(side, name, startEnd, startControl, endControl, conditional=1):
     startPoint = mc.createNode("transform", n=startEnd[0][:-4] + "_TRN")
-    mc.parent(startPoint, startEnd[0], r=1) #Parent to start joint and snap location 
+    mc.parent(startPoint, startControl, r=1) #Parent to ikBaseCtl and snap location 
     #Create a transform to locate end of stretchable chain
     endPoint = mc.createNode("transform", n=startEnd[-1][:-4]+"_TRN")
     mc.parent(endPoint, endControl, r=1)
@@ -263,6 +323,7 @@ def limbStretch(side, name, startEnd, endControl, conditional=1):
     mc.setAttr(stretchFactor + ".input2.input2X", length)
     mc.setAttr(stretchFactor + ".operation", 2)
     
+    #If the stretch is unconditional - cause the limb to squish when distance 
     if conditional == 0:
         jointStretchMDVsList = []
         for jnt in startEnd[1:]:
@@ -288,11 +349,6 @@ def limbStretch(side, name, startEnd, endControl, conditional=1):
             mc.connectAttr(isLimbStretched + ".outColorR", jointStretch + ".input2.input2X")
             mc.connectAttr(jointStretch + ".output.outputX", jnt + ".tx")
             jointStretchMDVsList.append(jointStretch) 
-    # mc.setAttr(jointStretch + ".input2.input2X", mc.getAttr("C_spine01_JNT.tx"))
-    
-    # for jnt in jointChain:
-    #     mc.connectAttr(jointStretch + ".output.outputX", jnt + ".tx")
-
 
 def getPoleVectorPosition(rootPos, midPos, endPos):
     rootJntVector = om2.MVector(rootPos[0], rootPos[1], rootPos[2])
@@ -338,14 +394,140 @@ def blendChainConstraints(driven, skipTranslate, *args, **kwargs):
             constraintsList.append(parCon)
     return constraintsList
 
-def blendTranslations(name, blendJoint, ikJoint, ikFkSwitchAttr):
+def blendTranslations(name, blendJoint, ikJoint):
+
     ikJointTranslate = ikJoint + ".translateX"
     staticLen = mc.getAttr(ikJointTranslate)
-    translateBlendNode = mc.createNode("blendTwoAttr", n=name)
-    mc.connectAttr(ikJointTranslate, translateBlendNode+".input[0]")
-    mc.setAttr(translateBlendNode+".input[1]", staticLen)
-    mc.connectAttr(ikFkSwitchAttr, translateBlendNode + ".attributesBlender")
-    mc.connectAttr(translateBlendNode+".output", blendJoint + ".translateX")
+    blendTranslationsNode = mc.createNode("blendTwoAttr", n=name)
+    mc.connectAttr(ikJointTranslate, blendTranslationsNode+".input[0]")
+    mc.setAttr(blendTranslationsNode+".input[1]", staticLen)
+    mc.connectAttr(blendTranslationsNode+".output", blendJoint + ".translateX")
+
+    return blendTranslationsNode
+
+def createConnectIkFkSwitch(side, name, parentJoint, blendChainParentConstraints, blendTranslationsNode, ikCtlsGrp, ikBaseCtl, fkControlsGroupsList):
+    # Create and position IK/FK Switch
+    ikFkSwitchCtl, ikFkSwitchOfs, ikFkSwitchGrp = buildControl(side, 
+                "%sIkFkSwitch" % name, parentJoint, shapeCVs=SWITCH_SHAPE_CVS)
+    if name == "arm":
+        mc.move(0, 10, -10, ikFkSwitchGrp, r=1, ws=1)
+        mc.rotate(90, 0, 0, ikFkSwitchGrp, ws=1, r=1)
+    else:
+        mc.rotate(90, 0, 90, ikFkSwitchGrp, r=1, ws=1)    
+        if side=="L":
+            mc.move(15, 10,0, ikFkSwitchGrp, ws=1, r=1)
+        else:
+            mc.move(-15, 10, 0, ikFkSwitchGrp, ws=1, r=1)
+    
+    mc.parentConstraint(parentJoint, ikFkSwitchOfs, sr=["x", "y", "z"], mo=1)
+    #Create the switch attribute, where 0=IK and 1=FK
+    ikFkSwitchAttr = addAttr(ikFkSwitchCtl, at="float", k=1, ln="ikFkSwitch",
+                 max=1, min=0, dv=0)
+    # Reverse IK FK switch attribute's value:
+    reversalNodeIkFk = mc.createNode("plusMinusAverage", 
+                        n="%s_%sIkFkReversedValue_PMA" % (side, name))
+    mc.setAttr(reversalNodeIkFk + ".operation", 2)
+    mc.setAttr(reversalNodeIkFk + ".input1D[0]", 1)
+    mc.connectAttr(ikFkSwitchAttr, reversalNodeIkFk + ".input1D[1]")
+    # Connect IK/Fk Switch to parent constraints:
+    for parCon in blendChainParentConstraints:
+        mc.connectAttr(ikFkSwitchAttr, parCon + ".w1")
+        mc.connectAttr(reversalNodeIkFk + ".output1D", parCon +".w0")
+    #Connect IK/FK switch to the node blending the translations of the end joint:
+    mc.connectAttr(ikFkSwitchAttr, blendTranslationsNode + ".attributesBlender")
+    # Connect IK/FK Switch to control visibility:
+    mc.connectAttr(reversalNodeIkFk + ".output1D", ikCtlsGrp + ".v")
+    mc.connectAttr(reversalNodeIkFk + ".output1D", ikBaseCtl + ".v")
+    for ctl in fkControlsGroupsList:
+        mc.connectAttr(ikFkSwitchAttr, ctl + ".v")
+    #Place switch in the hierarchy
+    mc.parent(ikFkSwitchGrp, "%s_%s_GRP" % (side, name))
+
+    return reversalNodeIkFk + ".output1D", ikFkSwitchAttr
+
+def footRollSetup(side, footIkCtl):
+#Setup foot roll with  Ball Straight and Toe Lift attributes exposed:
+    rollAttr = addAttr(footIkCtl, ln= "roll", at="doubleAngle", k=1)
+    toeLiftAttr = addAttr(footIkCtl, ln= "toeLift", at="doubleAngle", k=1, dv=0.5235988)
+    ballStraightAttr = addAttr(footIkCtl, ln= "ballStraight", at="doubleAngle", k=1, dv=1.047198)
+    ikCtlChildren = mc.listRelatives(footIkCtl, c=1)
+    ikCtlChildren.remove(footIkCtl+"Shape") 
+    ikCtlChildren = mc.group(ikCtlChildren, n="%s_footIkh_GRP" % side)
+    print(rollAttr)
+    #Assigning names to pivots from the guides file
+    heelLtr = "%s_heel_LTR" % side
+    ballFootLtr = "%s_ballFoot_LTR" % side
+    toesLtr = "%s_toes_LTR" % side
+    #Construct hierarchy:
+    mc.parent(ikCtlChildren, ballFootLtr)
+    mc.parent(ballFootLtr, toesLtr)
+    mc.parent(toesLtr, heelLtr)
+    mc.parent(heelLtr, footIkCtl)
+    # IK handle:
+    ballFootIkHandle, _ = mc.ikHandle(sj="%s_leg02Ik_JNT" % side, ee="%s_leg03Ik_JNT" \
+            % side, sol="ikSCsolver", n="%s_ballfoot_IKH" % side)
+    mc.parent(ballFootIkHandle, ballFootLtr)
+    #Set up rotation nodes:
+
+    ballFootClamp = mc.createNode("clamp", n="%s_ballOfFootRotationClamp_CL" % side)
+    mc.connectAttr(rollAttr, ballFootClamp + ".input.inputR")
+    mc.connectAttr(toeLiftAttr, ballFootClamp + ".max.maxR")
+    ballFootReverseRemapValue = mc.createNode("remapValue", n="%s_ballOfFootreverseRotation_RMV" % side)
+    mc.connectAttr(ballStraightAttr, ballFootReverseRemapValue +".inputMax")
+    mc.connectAttr(toeLiftAttr, ballFootReverseRemapValue +".inputMin")
+    mc.connectAttr(toeLiftAttr, ballFootReverseRemapValue +".outputMax")
+    mc.connectAttr(rollAttr, ballFootReverseRemapValue +".inputValue")
+    ballFootRotationBlend = mc.createNode("animBlendNodeAdditiveDA", n="%s_ballOfFootRotationBlend_ADA" % side)
+    mc.connectAttr(ballFootClamp + ".outputR", ballFootRotationBlend +".inputA")
+    mc.connectAttr(ballFootReverseRemapValue + ".outValue", ballFootRotationBlend + ".inputB")
+    mc.setAttr(ballFootRotationBlend + ".weightB", -1)
+    mc.connectAttr(ballFootRotationBlend +".output", ballFootLtr +".rotate.rotateX")
+    negateXRotationBall = mc.createNode("animBlendNodeAdditiveDA", n="%s_negateXRotationInBall_ADA" % side) 
+    mc.setAttr(negateXRotationBall + ".weightA", -1)
+    mc.connectAttr(ballFootLtr + ".rotate.rotateX", negateXRotationBall + ".inputA")
+    mc.connectAttr(negateXRotationBall +".output", "%s_leg03Ik_JNT.rotateX" % side)
+
+    toesRemapOutputMax = mc.createNode("animBlendNodeAdditiveDA", n="%s_toeLiftRemapOutputMax_ADA" % side)
+    mc.setAttr(toesRemapOutputMax +".inputA", 180)
+    mc.connectAttr(toeLiftAttr, toesRemapOutputMax +".inputB")
+    mc.setAttr(toesRemapOutputMax +".weightB", -1)
+    toesRotationRemap = mc.createNode("remapValue", n="%s_toesRotationRemap_RMV" % side)
+    mc.connectAttr(rollAttr, toesRotationRemap+".inputValue")
+    mc.connectAttr(toeLiftAttr, toesRotationRemap +".inputMin")
+    mc.setAttr(toesRotationRemap +".inputMax", 180)
+    mc.setAttr(toesRotationRemap +".outputMin", 0)
+    mc.connectAttr(toesRemapOutputMax + ".output", toesRotationRemap +".outputMax")
+    mc.connectAttr(toesRotationRemap +".outColorR", toesLtr +".rx")
+
+    heelRollClamp = mc.createNode("clamp", n="%s_heelRoll_CL" % side)
+    mc.connectAttr(rollAttr, heelRollClamp +".input.inputR")
+    mc.setAttr(heelRollClamp +".minR", -45)
+    mc.setAttr(heelRollClamp + ".maxR", 0)
+    mc.connectAttr(heelRollClamp +".outputR", heelLtr + ".rx")
+
+
+
+# Pseudocode
+# 1. create a transform at the ball of the foot
+# 2. parent it to foot ctls
+# 3. parent ik handle under foot ctls
+# 4. use the ankle transform  and parent it under the ball of foot
+# group ikh and ankle lock
+# 5. IK handle (single chain solver)Ankle to ball of foot 
+# 6. Parent IKH under the ball of the foot transform
+# 7. Negating ball rotation  in toes using an animblendnodeadditiveda
+# set weight WA to -1
+# 8. create a toe lift pivot transforms and parent it to the ik ctls
+# 9. parent everything under the toe lift transform
+# 10. roll, Ball Straight, Toe lift attribute with double angle
+# mc.addAttr("CTL", ln= "roll", at="doubleAngle", k=1)
+
+
+# 11. Roll connect to rotate x
+# 12. CUSTOM NODES?
+# 13. remap value from roll to toe loc. 
+# 14. remap value 
+# 15. Heel transform
 
 def main():
     #Create a new file and import model and guides 
@@ -367,30 +549,7 @@ def main():
     # Build leg FK ctls. IK chain, Handle and Ctls
     for side in "LR":
         # Build IK chain and FK ctls
-        blendChain, fkCtlsList, fkCtlsOfsList, fkCtlsGrpList, ikChain = buildLimb(side, "leg", "C_hips_CTL")
-
-        # Adjust FK ctl shapes
-        for ctl, ofs, grp in zip(fkCtlsList, fkCtlsOfsList, fkCtlsGrpList): 
-                mc.scale(6,6,6,ctl + ".cv[*]")
-
-                if ctl != fkCtlsList[-1] : # omit rotating the toe FK control CVs 
-                    mc.rotate(90,0,0,ctl + ".cv[*]", ws=1)
-
-                if ctl == fkCtlsList[0] : # move the hip FK control CVs for visual clarity
-                    mc.move(0, -8, 0, ctl + ".cv[*]", ws=1, r=1)
-
-        # Build IK foot control:
-        footIkCtl, _, footIkCtlGrp = buildControl(side, "leg02Ik", "%s_leg02Ik_JNT"
-                                 % side, shapeCVs=SQUARE_SHAPE_CVS, colour=18 if 
-                                 side=="L" else 20)
-        mc.scale(6,6,6, footIkCtl + ".cv[*]")
-
-        # Create IK handle and parent to IK control:
-        footIkHandle, _ = mc.ikHandle(sj="%s_leg00Ik_JNT" % side, 
-                    ee="%s_leg02Ik_JNT" % side, sol="ikRPsolver")
-        footIkHandle = mc.rename(footIkHandle, "%s_leg02_IKH" % side)
-        mc.parent(footIkHandle, footIkCtl)
-
+        blendChain, fkCtlsList, fkCtlsOfsList, fkCtlsGrpList, ikChain, footIkCtl, footIkCtlGrp, footIkHandle, ikBaseCtl = buildLimb(side, "leg", "C_hips_CTL")
         # Build Pole Vector control and create pole vector constraint to leg02IK:
         kneePoleVectorCtl, _, kneePoleVectorGrp = buildControl(side, 
         "kneePoleVector", "%s_leg01Ik_JNT" % side, shapeCVs=DIAMOND_SHAPE_CVS, 
@@ -405,45 +564,23 @@ def main():
                  % side, w=1)
         mc.parent(ikCtlsGrp, ctlsGrp)
 
-        #Make limb stretchable:
-        limbStretch(side, "leg", ikChain[:-2], footIkCtl)
-        # Create and position IK/FK Switch
-        ikFkSwitchCtl, ikFkSwitchOfs, ikFkSwitchGrp = buildControl(side, 
-                "legIkFkSwitch", "%s_leg02_JNT" % side, shapeCVs=SWITCH_SHAPE_CVS)
-
-        mc.rotate(90, 0, 90, ikFkSwitchGrp, r=1, ws=1)    
-        if side=="L":
-            mc.move(15, 10,0, ikFkSwitchGrp, r=1)
-        else:
-            mc.move(-15, -10, 0, ikFkSwitchGrp, r=1)
-        mc.parentConstraint("%s_leg02_JNT" % side, ikFkSwitchOfs, mo=1)
-        ikFkSwitchAttr = addAttr(ikFkSwitchCtl, at="float", k=1, ln="ikFkSwitch",
-                     max=1, min=0, dv=0)
-
-        # Reverse IK FK switch attribute's value:
-        reversalNodeIkFk = mc.createNode("plusMinusAverage", 
-                        n="%s_legIkFkReversedValue_PMA" % side)
-        mc.setAttr(reversalNodeIkFk + ".operation", 2)
-        mc.setAttr(reversalNodeIkFk + ".input1D[0]", 1)
-        mc.connectAttr(ikFkSwitchAttr, reversalNodeIkFk + ".input1D[1]")
-
-        #Create parent constraints for the blend chain:
+        # Make limb stretchable:
+        limbStretch(side, "leg", ikChain[:-2], ikBaseCtl, footIkCtl)
+        # Create parent constraints for the blend chain, and a blend translations
+        # node for the end joint:
         blendChainParentConstraints = blendChainConstraints(blendChain[:-1], \
                             "%s_leg02_JNT" % side, ikChain[:-1], fkCtlsList, mo=0)
-        # Connect IK/Fk Switch to parent constraints:
-        for parCon in blendChainParentConstraints:
-            mc.connectAttr(ikFkSwitchAttr, parCon + ".w1")
-            mc.connectAttr(reversalNodeIkFk + ".output1D", parCon +".w0")
-        # Create a blend two attr node and connect IK/FK switch to it:
-        # mc.connectAttr(reversalNodeIkFk + ".output1D", blendTranslationsNode + ".attributesBlender")
-        blendTranslations("%s_leg02_BTA" % side, "%s_leg02_JNT" % side, "%s_leg02Ik_JNT" % side, ikFkSwitchAttr)
-        # Connect IK/FK Switch to control visibility:
-        mc.connectAttr(reversalNodeIkFk + ".output1D", ikCtlsGrp + ".v")
-        mc.connectAttr(ikFkSwitchAttr, fkCtlsGrpList[0] + ".v")
-        #Place switch in the hierarchy
-        mc.parent(ikFkSwitchGrp, "%s_leg_GRP" % side)
 
-     # Build arm FK ctls. IK chain, Handle and Ctls 
+        blendTranslationsNode = blendTranslations("%s_leg02_BTA" % side, "%s_leg02_JNT" % side, "%s_leg02Ik_JNT" % side)
+        #Create and position IK/FK Switch
+        createConnectIkFkSwitch(side, "leg", "%s_leg02_JNT" % side, \
+            blendChainParentConstraints, blendTranslationsNode, ikCtlsGrp, \
+                ikBaseCtl, fkCtlsGrpList)
+        #Build foot roll:
+        footRollSetup(side, footIkCtl)
+
+
+    # Build arm FK ctls. IK chain, Handle and Ctls 
     # for side in "LR":
     #             # Build IK chain and FK ctls
     #     blendChain, fkCtlsList, fkCtlsOfsList, fkCtlsGrpList, ikChain = buildLimb(side, "arm", "C_chest_CTL")

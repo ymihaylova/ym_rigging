@@ -1,8 +1,3 @@
-Questions and notes for Weds:
-
-If the ankle joint retains a ~180 orientation due to it being world oriented, this appears to cause flipping when switching between IK and FK in a parent constraint situation. Why would that be? The ik joint and blend joint are orientated exactly the same, and so are the FK ctls/offsets/groups.
-
-irregular shapes - pivot issues
 
 curve
 Index:
