@@ -1,0 +1,2 @@
+NOTES:
+Currently a small rotation is introduced in leg joint 3 which causes the foot to straighten while blending between IK and FK. 

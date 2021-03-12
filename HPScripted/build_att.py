@@ -166,6 +166,63 @@ class SpineComponent:
         mc.connectAttr(spineCtls[0]+ ".worldMatrix", splineIkh + ".dWorldUpMatrix")
         mc.connectAttr(spineCtls[-1] + ".worldMatrix", splineIkh + ".dWorldUpMatrixEnd")
 
+class Neck:
+    def __init__(self, jointChain, jointChainTwist):
+        self.build(jointChain, jointChainTwist)
+    def build(self, jointChain, jointChainTwist):
+        #Create and position Neck Ctl, insert in the hierarchy
+        neckBaseCtl, _, neckBaseGrp = buildControl("C", "neck", jointChain[0])
+        mc.move(0, 0, 1, neckBaseCtl + ".cv[*]", r=1)
+        mc.rotate(0, 90, 0, neckBaseCtl + ".cv[*]", r=1)
+        mc.scale(6, 6, 6, neckBaseCtl +".cv[*]")
+        mc.parent(neckBaseGrp, "C_chest_CTL")
+        mc.parent(jointChain[0], jointChainTwist[0], neckBaseCtl)
+        #Head joint:
+        headJnt = mc.duplicate(jointChain[-1], n="C_head_JNT")[0]
+        mc.parent(headJnt, w=1)
+        mc.setAttr(headJnt + ".jointOrientY", 0)
+        headCtl, _, headGrp = buildControl("C", "head", headJnt, shapeCVs=SQUARE_SHAPE_CVS)
+        mc.scale(15, 15, 15, headCtl+".cv[*]")
+        mc.rotate(0, 0, 90, headCtl +".cv[*]", r=1)
+        mc.parent(headJnt, headCtl)
+        mc.parent(headGrp, neckBaseCtl)
+        #Aim constrain jointChain to chest and jointChainTwist to head:
+        mc.aimConstraint("C_head_CTL", jointChain[0], wut="objectrotation", u=[0, 1, 0], aim=[1, 0, 0], wu=[-1, 0, 0], wuo="C_chest_CTL")
+        mc.aimConstraint("C_head_CTL", jointChainTwist[0], wut="objectrotation", u=[0, 1, 0], aim=[1, 0, 0], wu=[0, 1, 0], wuo="C_head_CTL")
+        #Mid joint half twist:
+        halfTwistNode = mc.createNode("animBlendNodeAdditiveDA", n="C_neck01HalfTwist_ADA")
+        mc.connectAttr(jointChain[0] +".rx", halfTwistNode + ".inputA")
+        mc.connectAttr(jointChainTwist[0] +".rx", halfTwistNode + ".inputB")
+        mc.setAttr(halfTwistNode + ".weightA", 0.5)
+        mc.setAttr(halfTwistNode + ".weightB", 0.5)
+        mc.connectAttr(halfTwistNode+".output", jointChain[1] +".rx", f=1)
+        #Stretch:
+        startPoint = mc.createNode("transform", n=neckBaseCtl[:-4] + "_TRN")
+        mc.parent(startPoint, neckBaseCtl, r=1) #Parent to ikBaseCtl and snap location 
+        #Create a transform to locate end of stretchable chain
+        endPoint = mc.createNode("transform", n=headCtl[:-4]+"_TRN")
+        mc.parent(endPoint, headCtl, r=1)
+        length = mc.getAttr(jointChainTwist[-1] + ".tx")
+        #Stretch factor:
+        stretch = mc.createNode("distanceBetween", n="C_neckStretch_DB")
+        mc.connectAttr(startPoint + ".worldMatrix", stretch + ".inMatrix1")
+        mc.connectAttr(endPoint + ".worldMatrix", stretch + ".inMatrix2")
+        stretchFactor = mc.createNode("multiplyDivide", n="%C_neckStretchFactor_MDV")
+        mc.connectAttr(stretch + ".distance", stretchFactor + ".input1.input1X")
+        mc.setAttr(stretchFactor + ".input2.input2X", length)
+        mc.setAttr(stretchFactor + ".operation", 2)
+        #Stretch jointChain joints
+        for jnt in jointChain[1:]:
+            jointStretch = mc.createNode("multiplyDivide", n="C_Neck%sIndividualStretch_MDV" % str(jointChain.index(jnt)).zfill(2))
+            jntTx = mc.getAttr(jnt + ".tx")
+            mc.setAttr(jointStretch + ".input1.input1X", jntTx)
+            mc.connectAttr(stretchFactor + ".output.outputX", jointStretch + ".input2.input2X")
+            mc.connectAttr(jointStretch + ".output.outputX", jnt + ".tx")
+        #Stretch jointChainTwist:
+        jointStretch = mc.createNode("multiplyDivide", n="C_NeckWithTwist01IndividualStretch_MDV")
+        mc.setAttr(jointStretch + ".input1.input1X", mc.getAttr(jointChainTwist[-1] +".tx"))
+        mc.connectAttr(stretchFactor + ".output.outputX", jointStretch + ".input2.input2X")
+        mc.connectAttr(jointStretch + ".output.outputX", jointChainTwist[-1] + ".tx")
 def addAttr(*args, **kwargs):
     mc.addAttr(*args, **kwargs)
     
@@ -545,6 +602,7 @@ def main():
 
     # Build spine
     spine = SpineComponent(mc.ls("C_spine??_JNT"), "C_spine_CRV")
+    neck = Neck(mc.ls("C_neck??_JNT"), mc.ls("C_neckWithTwist??_JNT"))
 
     # Build leg FK ctls. IK chain, Handle and Ctls
     for side in "LR":
