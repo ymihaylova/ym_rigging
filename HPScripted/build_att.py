@@ -17,11 +17,6 @@ class SpineComponent:
         spineCtlsGrps = []
         names = ["hips", "spineMid", "chest"]
         shapes = [cs.HIPS_SHAPE_CVS, cs.SPINEMID_SHAPE_CVS, cs.CHEST_SHAPE_CVS]
-        shapeKnotsList = [
-            cs.HIPS_SHAPE_KNOTS,
-            cs.SPINEMID_SHAPE_KNOTS,
-            cs.CHEST_SHAPE_KNOTS,
-        ]
         hipFkCtl, hipFkGrp = [], []
         spineMidFkCtl, spineMidFkGrp = [], []
         # Root Ctl:
@@ -30,7 +25,7 @@ class SpineComponent:
             "root",
             "C_spine00_JNT",
             shapeCVs=cs.SPINEMID_SHAPE_CVS,
-            shapeKnots=cs.SPINEMID_SHAPE_KNOTS,
+            shapeKnots=cs.KNOTS,
         )
         mc.scale(1.5, 1.5, 1.5, rootCtl + ".cv[*]")
         mc.rotate(0, 0, 0, rootGrp, ws=1)
@@ -46,7 +41,7 @@ class SpineComponent:
                 names[counter],
                 clusterHandle,
                 shapeCVs=shapes[counter],
-                shapeKnots=shapeKnotsList[counter],
+                shapeKnots=cs.KNOTS,
                 degree=3,
             )
             if counter != 1:
@@ -57,7 +52,7 @@ class SpineComponent:
                         "hipFk",
                         clusterHandle,
                         shapeCVs=cs.SPINEFK_SHAPE_CVS,
-                        shapeKnots=cs.SPINEFK_SHAPE_KNOTS,
+                        shapeKnots=cs.KNOTS,
                         colour=9,
                     )
                 # Create a hips/chest joint, reposition to ctl location and parent:
@@ -70,7 +65,7 @@ class SpineComponent:
                     "spineMidFk",
                     clusterHandle,
                     shapeCVs=cs.SPINEFK_SHAPE_CVS,
-                    shapeKnots=cs.SPINEFK_SHAPE_KNOTS,
+                    shapeKnots=cs.KNOTS,
                     colour=9,
                 )
 
@@ -139,15 +134,21 @@ class NeckComponent:
         mc.scale(6, 6, 6, neckBaseCtl + ".cv[*]")
         mc.parent(neckBaseGrp, "C_chest_CTL")
         mc.parent(jointChain[0], jointChainTwist[0], neckBaseCtl)
+        # Add to skinnable joints:
+        addToSkinJoints(jointChainTwist[1])
+        for joint in jointChain[:-1]:
+            addToSkinJoints(joint)
         # Head joint:
         headJnt = mc.duplicate(jointChain[-1], n="C_head_JNT")[0]
+        addToSkinJoints(headJnt)
         mc.parent(headJnt, w=1)
+        mc.setAttr(headJnt + ".jointOrientX", 0)
         mc.setAttr(headJnt + ".jointOrientY", 0)
+        mc.setAttr(headJnt + ".jointOrientZ", 0)
         headCtl, _, headGrp = buildControl(
             "C", "head", headJnt, shapeCVs=cs.SQUARE_SHAPE_CVS
         )
         mc.scale(15, 15, 15, headCtl + ".cv[*]")
-        mc.rotate(0, 0, 90, headCtl + ".cv[*]", r=1)
         mc.parent(headJnt, headCtl)
         mc.parent(headGrp, neckBaseCtl)
         # Aim constrain jointChain to chest and jointChainTwist to head:
@@ -166,7 +167,7 @@ class NeckComponent:
             wut="objectrotation",
             u=[0, 1, 0],
             aim=[1, 0, 0],
-            wu=[0, 1, 0],
+            wu=[-1, 0, 0],
             wuo="C_head_CTL",
         )
         # Mid joint half twist:
@@ -179,16 +180,11 @@ class NeckComponent:
         mc.setAttr(halfTwistNode + ".weightB", 0.5)
         mc.connectAttr(halfTwistNode + ".output", jointChain[1] + ".rx", f=1)
         # Stretch:
-        startPoint = mc.createNode("transform", n=neckBaseCtl[:-4] + "_TRN")
-        mc.parent(startPoint, neckBaseCtl, r=1)  # Parent to ikBaseCtl and snap location
-        # Create a transform to locate end of stretchable chain
-        endPoint = mc.createNode("transform", n=headCtl[:-4] + "_TRN")
-        mc.parent(endPoint, headCtl, r=1)
         length = mc.getAttr(jointChainTwist[-1] + ".tx")
         # Stretch factor:
         stretch = mc.createNode("distanceBetween", n="C_neckStretch_DB")
-        mc.connectAttr(startPoint + ".worldMatrix", stretch + ".inMatrix1")
-        mc.connectAttr(endPoint + ".worldMatrix", stretch + ".inMatrix2")
+        mc.connectAttr(neckBaseCtl + ".worldMatrix", stretch + ".inMatrix1")
+        mc.connectAttr(headCtl + ".worldMatrix", stretch + ".inMatrix2")
         stretchFactor = mc.createNode("multiplyDivide", n="%C_neckStretchFactor_MDV")
         mc.connectAttr(stretch + ".distance", stretchFactor + ".input1.input1X")
         mc.setAttr(stretchFactor + ".input2.input2X", length)
@@ -216,6 +212,8 @@ class NeckComponent:
             stretchFactor + ".output.outputX", jointStretch + ".input2.input2X"
         )
         mc.connectAttr(jointStretch + ".output.outputX", jointChainTwist[-1] + ".tx")
+        # Orient to parent/world
+        orientToParent("C_chest_CTL", "C_head_CTL", "C_head_GRP")
 
 
 def buildControl(
@@ -243,13 +241,14 @@ def buildControl(
     if guide != None:
         mc.delete(mc.parentConstraint(guide, group, maintainOffset=0))
     # Set colour
-    mc.setAttr(control + "Shape.overrideEnabled", 1)
-    mc.setAttr(control + "Shape.overrideColor", colour)
+    for ctlShape in mc.listRelatives(control, s=1):
+        mc.setAttr(ctlShape + ".overrideEnabled", 1)
+        mc.setAttr(ctlShape + ".overrideColor", colour)
 
     return control, offset, group
 
 
-def buildLimb(side, name, parent):
+def buildLimb(side, name, parent, skinJointsMessageAttr):
     blendChain = mc.ls("%s_%s??_JNT" % (side, name))
     fkCtlsList = []
     fkCtlsOfsList = []
@@ -284,7 +283,7 @@ def buildLimb(side, name, parent):
 
             if ctl == fkCtlsList[0]:  # move the hip FK control CVs for visual clarity
                 mc.move(0, -8, 0, ctl + ".cv[*]", ws=1, r=1)
-
+        orientToParent("C_hips_CTL", fkCtlsList[0], fkCtlsGrpList[0])
     if name == "arm":
         for fkCtl in fkCtlsList:
             mc.scale(6, 6, 6, fkCtl + ".cv[*]")
@@ -303,6 +302,7 @@ def buildLimb(side, name, parent):
                     mc.move(3, 0, 0, fkCtl + ".cv[*]", ws=1, r=1)
                 else:
                     mc.move(-3, 0, 0, fkCtl + ".cv[*]", ws=1, r=1)
+        orientToParent(fkCtlsList[0], fkCtlsList[1], fkCtlsGrpList[1])
     # Create IK copy of the blend chain
     ikChain = mc.duplicate("%s_%s00_JNT" % (side, name), renameChildren=1)
     renamedIkChain = []
@@ -376,6 +376,14 @@ def buildLimb(side, name, parent):
         )
         ikHandle = mc.rename(ikHandle, "%s_arm03_IKH" % side)
         mc.parent(ikHandle, ikCtl)
+
+    # Connect a message attr to the Harry Ctl for all skin joints:
+    if name == "leg":
+        for joint in blendChain:
+            addToSkinJoints(joint)
+    else:
+        for joint in blendChain[:-1]:
+            addToSkinJoints(joint)
 
     if not DEBUG_MODE:
         mc.hide(blendChain, ikChain)
@@ -521,7 +529,7 @@ def createConnectIkFkSwitch(
         else:
             mc.move(-15, 10, 0, ikFkSwitchGrp, ws=1, r=1)
 
-    mc.parentConstraint(parentJoint, ikFkSwitchOfs, sr=["x", "y", "z"], mo=1)
+    mc.parentConstraint(parentJoint, ikFkSwitchGrp, sr=["x", "y", "z"], mo=1)
     # Create the switch attribute, where 0=IK and 1=FK
     ikFkSwitchAttr = gen.addAttr(
         ikFkSwitchCtl, at="float", k=1, ln="ikFkSwitch", max=1, min=0, dv=0
@@ -563,7 +571,11 @@ def footRollSetup(side, footIkCtl):
     ikCtlChildren.remove(footIkCtl + "Shape")
     ikCtlChildren = mc.group(ikCtlChildren, n="%s_footIkh_GRP" % side)
     print(rollAttr)
+    # Banking attr exposed:
+    bankAttr = gen.addAttr(footIkCtl, ln="Bank", at="float", k=1, min=-10, max=10)
     # Assigning names to pivots from the guides file
+    bankOutLtr = "%s_footBankOut_LTR" % side
+    bankInLtr = "%s_footBankIn_LTR" % side
     heelLtr = "%s_heel_LTR" % side
     ballFootLtr = "%s_ballFoot_LTR" % side
     toesLtr = "%s_toes_LTR" % side
@@ -571,7 +583,9 @@ def footRollSetup(side, footIkCtl):
     mc.parent(ikCtlChildren, ballFootLtr)
     mc.parent(ballFootLtr, toesLtr)
     mc.parent(toesLtr, heelLtr)
-    mc.parent(heelLtr, footIkCtl)
+    mc.parent(heelLtr, bankInLtr)
+    mc.parent(bankInLtr, bankOutLtr)
+    mc.parent(bankOutLtr, footIkCtl)
     # IK handle:
     ballFootIkHandle, _ = mc.ikHandle(
         sj="%s_leg02Ik_JNT" % side,
@@ -628,12 +642,66 @@ def footRollSetup(side, footIkCtl):
     mc.setAttr(heelRollClamp + ".maxR", 0)
     mc.connectAttr(heelRollClamp + ".outputR", heelLtr + ".rx")
 
+    # Set up banking:
+    # Clamp
+    bankingClamp = mc.createNode("clamp", n="%s_footBankingClamp_CL" % side)
+    mc.connectAttr(bankAttr, bankingClamp + ".inputR")
+    mc.setAttr(bankingClamp + ".maxR", 10)
+    mc.connectAttr(bankAttr, bankingClamp + ".inputG")
+    mc.setAttr(bankingClamp + ".minG", -10)
+    # Animblend to Bank out:
+    bankOutAnimBlend = mc.createNode(
+        "animBlendNodeAdditiveDA", n="%s_bankOut_ADA" % side
+    )
+    mc.setAttr(bankOutAnimBlend + ".inputA", -10)
+    mc.connectAttr(bankingClamp + ".outputR", bankOutAnimBlend + ".weightA")
+    mc.connectAttr(bankOutAnimBlend + ".output", bankOutLtr + ".rz")
+    # Animblend to Bank In:
+    bankInAnimBlend = mc.createNode("animBlendNodeAdditiveDA", n="%s_bankIn_ADA" % side)
+    mc.setAttr(bankInAnimBlend + ".inputA", -10)
+    mc.connectAttr(bankingClamp + ".outputG", bankInAnimBlend + ".weightA")
+    mc.connectAttr(bankInAnimBlend + ".output", bankInLtr + ".rz")
+
 
 def buildHandCtls(side):
     # Create hand base transform and get it parent constrained to arm03_JNT
     baseTransform = mc.createNode("transform", n="%s_handBase_TRN" % side)
     mc.parentConstraint("%s_arm03_JNT" % side, baseTransform, mo=0)
     mc.parent(baseTransform, "C_chest_CTL")
+
+
+def addToSkinJoints(joint, skinJointsMessageAttr="C_harry_CTL.skinJoints"):
+    jointMessageAttr = gen.addAttr(joint, ln="skinJoint", at="message")
+    mc.connectAttr(skinJointsMessageAttr, jointMessageAttr)
+
+
+def orientToParent(parentCtl, drivenCtl, drivenGrp, worldControl="C_harry_CTL"):
+    # Create an attribute for the control
+    orientAttr = gen.addAttr(
+        drivenCtl, at="float", ln="orientToParent", k=1, min=0, max=1
+    )
+    # create a zeroed out transform at the parent location
+    if parentCtl[0] != "C":
+        worldOrientedNode = mc.createNode(
+            "transform", n=parentCtl[:-4] + "WorldOrientation_TRN"
+        )
+        mc.parent(worldOrientedNode, parentCtl, r=1)
+        mc.rotate(0, 0, 0, worldOrientedNode, ws=1)
+        # Orient constrain the drivenGroup:
+        orientConstraintNode = mc.orientConstraint(
+            worldControl, worldOrientedNode, drivenGrp, mo=1
+        )[0]
+    else:
+        orientConstraintNode = mc.orientConstraint(
+            worldControl, parentCtl, drivenGrp, mo=1
+        )[0]
+
+    print(orientConstraintNode)
+    # Connect the attr to the parentCtlConstraint
+    mc.connectAttr(orientAttr, orientConstraintNode + ".w1")
+    reverse = mc.createNode("reverse", n=drivenGrp[:-4] + "ReverseInfluence_RV")
+    mc.connectAttr(orientConstraintNode + ".w1", reverse + ".inputX")
+    mc.connectAttr(reverse + ".outputX", orientConstraintNode + ".w0")
 
 
 def main():
@@ -645,6 +713,7 @@ def main():
     # Housekeeping setup:
     harryCtl, _, _ = buildControl("C", "harry", shapeCVs=cs.SQUARE_SHAPE_CVS)
     mc.scale(15, 15, 15, harryCtl + ".cv[*]")
+    harryCtlSkinJoints = gen.addAttr(harryCtl, ln="skinJoints", at="message")
     ctlsGrp = mc.group(em=1)
     ctlsGrp = mc.rename(ctlsGrp, "ctls_GRP")
     rigGrp = mc.group(em=1)
@@ -667,7 +736,7 @@ def main():
             footIkCtlGrp,
             footIkHandle,
             ikBaseCtl,
-        ) = buildLimb(side, "leg", "C_hips_CTL")
+        ) = buildLimb(side, "leg", "C_hips_CTL", harryCtlSkinJoints)
         # Build Pole Vector control and create pole vector constraint to leg02IK:
         kneePoleVectorCtl, _, kneePoleVectorGrp = buildControl(
             side,
@@ -729,7 +798,7 @@ def main():
             wristIkCtlGrp,
             wristIkHandle,
             ikBaseCtl,
-        ) = buildLimb(side, "arm", "C_chest_CTL")
+        ) = buildLimb(side, "arm", "C_chest_CTL", harryCtlSkinJoints)
 
         # Elbow pole vector:
         elbowPoleVectorCtl, _, elbowPoleVectorGrp = buildControl(
