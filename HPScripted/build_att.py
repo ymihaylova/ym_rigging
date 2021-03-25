@@ -570,7 +570,6 @@ def footRollSetup(side, footIkCtl):
     ikCtlChildren = mc.listRelatives(footIkCtl, c=1)
     ikCtlChildren.remove(footIkCtl + "Shape")
     ikCtlChildren = mc.group(ikCtlChildren, n="%s_footIkh_GRP" % side)
-    print(rollAttr)
     # Banking attr exposed:
     bankAttr = gen.addAttr(footIkCtl, ln="Bank", at="float", k=1, min=-10, max=10)
     # Assigning names to pivots from the guides file
@@ -661,6 +660,12 @@ def footRollSetup(side, footIkCtl):
     mc.setAttr(bankInAnimBlend + ".inputA", -10)
     mc.connectAttr(bankingClamp + ".outputG", bankInAnimBlend + ".weightA")
     mc.connectAttr(bankInAnimBlend + ".output", bankInLtr + ".rz")
+
+    # Housekeeping:
+    if DEBUG_MODE == False:
+        ltrSet = [bankOutLtr, bankInLtr, heelLtr, toesLtr, ballFootLtr]
+        for ltr in ltrSet:
+            mc.setAttr(ltr + ".v", 0)
 
 
 def buildHandCtls(side):
