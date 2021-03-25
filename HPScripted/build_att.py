@@ -216,6 +216,86 @@ class NeckComponent:
         orientToParent("C_chest_CTL", "C_head_CTL", "C_head_GRP")
 
 
+class HandComponent:
+    def __init__(self, side):
+        self.buildControls(side)
+
+    def buildControls(self, side):
+        # Create hand base transform and get it parent constrained to arm03_JNT
+        baseTransform = mc.createNode("transform", n="%s_handBase_TRN" % side)
+        mc.parentConstraint("%s_arm03_JNT" % side, baseTransform, mo=0)
+        mc.parent(baseTransform, "C_chest_CTL")
+        # Parent finger joints to it:
+        thumbJoints = mc.ls("%s_fingerThumb??_JNT" % side)
+        indexJoints = mc.ls("%s_fingerIndex??_JNT" % side)
+        midFingerJoints = mc.ls("%s_fingerMidFinger??_JNT" % side)
+        ringFingerJoints = mc.ls("%s_fingerRing??_JNT" % side)
+        pinkyJoints = mc.ls("%s_fingerPinky??_JNT" % side)
+        fingerJointChains = [
+            thumbJoints,
+            indexJoints,
+            midFingerJoints,
+            ringFingerJoints,
+            pinkyJoints,
+        ]
+        mc.parent(
+            thumbJoints[0],
+            indexJoints[0],
+            midFingerJoints[0],
+            ringFingerJoints[0],
+            pinkyJoints[0],
+            baseTransform,
+        )
+        # Build controls and constrain them:
+        for jntChain in fingerJointChains:
+            ctlsList = []
+            ctlsGrpList = []
+            prevCtl, prevCtlGrp = None, None
+            for jnt in jntChain[:-1]:
+                addToSkinJoints(jnt)
+                if jntChain == thumbJoints:
+                    ctl, _, ctlGrp = buildControl(
+                        side,
+                        "%s_CTL" % jnt[2:-4],
+                        jnt,
+                        shapeCVs=cs.THUMB_SHAPE_CVS,
+                        shapeKnots=cs.KNOTS,
+                        colour=18 if side == "L" else 20,
+                    )
+                elif jntChain == pinkyJoints:
+                    ctl, _, ctlGrp = buildControl(
+                        side,
+                        "%s_CTL" % jnt[2:-4],
+                        jnt,
+                        shapeCVs=cs.PINKY_SHAPE_CVS,
+                        shapeKnots=cs.KNOTS,
+                        colour=18 if side == "L" else 20,
+                    )
+                else:
+                    ctl, _, ctlGrp = buildControl(
+                        side,
+                        "%s_CTL" % jnt[2:-4],
+                        jnt,
+                        shapeCVs=cs.FINGERS_SHAPE_CVS,
+                        shapeKnots=cs.KNOTS,
+                        colour=18 if side == "L" else 20,
+                    )
+                if jnt == jntChain[-2]:
+                    mc.scale(0.8, 0.8, 0.8, ctl + ".cv[*]")
+                if side == "R":
+                    mc.rotate(0, 180, 0, ctl + ".cv[*]")
+                if prevCtlGrp != None:
+                    mc.parent(ctlGrp, prevCtl)
+                    mc.parentConstraint(ctl, jnt, mo=0)
+                else:
+                    mc.parent(ctlGrp, baseTransform)
+                    mc.parent(jnt, ctl)
+
+                ctlsList.append(ctl)
+                ctlsGrpList.append(ctlGrp)
+                prevCtl, prevCtlGrp = ctl, ctlGrp
+
+
 def buildControl(
     side, name, guide=None, shapeCVs=[], shapeKnots=None, degree=1, colour=17
 ):
@@ -302,6 +382,7 @@ def buildLimb(side, name, parent, skinJointsMessageAttr):
                     mc.move(3, 0, 0, fkCtl + ".cv[*]", ws=1, r=1)
                 else:
                     mc.move(-3, 0, 0, fkCtl + ".cv[*]", ws=1, r=1)
+        # Expose ability to change limb joints' orientation
         orientToParent(fkCtlsList[0], fkCtlsList[1], fkCtlsGrpList[1])
     # Create IK copy of the blend chain
     ikChain = mc.duplicate("%s_%s00_JNT" % (side, name), renameChildren=1)
@@ -668,13 +749,6 @@ def footRollSetup(side, footIkCtl):
             mc.setAttr(ltr + ".v", 0)
 
 
-def buildHandCtls(side):
-    # Create hand base transform and get it parent constrained to arm03_JNT
-    baseTransform = mc.createNode("transform", n="%s_handBase_TRN" % side)
-    mc.parentConstraint("%s_arm03_JNT" % side, baseTransform, mo=0)
-    mc.parent(baseTransform, "C_chest_CTL")
-
-
 def addToSkinJoints(joint, skinJointsMessageAttr="C_harry_CTL.skinJoints"):
     jointMessageAttr = gen.addAttr(joint, ln="skinJoint", at="message")
     mc.connectAttr(skinJointsMessageAttr, jointMessageAttr)
@@ -849,7 +923,7 @@ def main():
             fkCtlsGrpList,
         )
         # Build Hand structure and controls:
-        hand = buildHandCtls(side)
+        hand = HandComponent(side)
     # Housekeeping:
     # Geometry in hierarchy
     mc.setAttr("C_geometry_GRP.inheritsTransform", 0)
