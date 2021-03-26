@@ -812,6 +812,62 @@ def orientToParent(parentCtl, drivenCtl, drivenGrp, worldControl="C_harry_CTL"):
     mc.connectAttr(reverse + ".outputX", orientConstraintNode + ".w0")
 
 
+def buildUpperLowerLimbControl(side, limb):
+    # Create guide joints for the midway controls for ribbons
+    upperJoint, lowerJoint = None, None
+    if limb == "arm":
+        upperJoint = mc.duplicate(
+            "%s_arm02_JNT" % side, po=1, n="%s_upperArm_JNT" % side
+        )[0]
+        lowerJoint = mc.duplicate(
+            "%s_arm03_JNT" % side, po=1, n="%s_lowerArm_JNT" % side
+        )[0]
+    if limb == "leg":
+        upperJoint = mc.duplicate(
+            "%s_leg01_JNT" % side, po=1, n="%s_upperLeg_JNT" % side
+        )[0]
+        lowerJoint = mc.duplicate(
+            "%s_leg02_JNT" % side, po=1, n="%s_lowerArm_JNT" % side
+        )[0]
+    xPosUpper = mc.getAttr(upperJoint + ".tx") * 0.5
+    mc.setAttr(upperJoint + ".tx", xPosUpper)
+    xPosLower = mc.getAttr(lowerJoint + ".tx") * 0.5
+    mc.setAttr(lowerJoint + ".tx", xPosLower)
+    halfwayJoints = [upperJoint, lowerJoint]
+    # Zero out orientations and create controls:
+    for jnt in halfwayJoints:
+        mc.setAttr(jnt + ".jointOrientX", 0)
+        mc.setAttr(jnt + ".jointOrientY", 0)
+        mc.setAttr(jnt + ".jointOrientZ", 0)
+
+    upperCtl, _, upperCtlGrp = buildControl(
+        side,
+        "%sUpper" % limb,
+        upperJoint,
+        shapeCVs=cs.RIBBON_SHAPE_CVS,
+        shapeKnots=cs.KNOTS,
+        colour=18 if side == "L" else 20,
+    )
+    # mc.scale(3, 3, 3, upperCtl + ".cv[*]")
+    lowerCtl, _, lowerCtlGrp = buildControl(
+        side,
+        "%sLower" % limb,
+        lowerJoint,
+        shapeCVs=cs.RIBBON_SHAPE_CVS,
+        shapeKnots=cs.KNOTS,
+        colour=18 if side == "L" else 20,
+    )
+
+    mc.parent(upperCtlGrp, lowerCtlGrp, "ctls_GRP")
+    if limb == "arm":
+        mc.parentConstraint("%s_arm01_JNT" % side, upperCtlGrp, mo=1)
+        mc.parentConstraint("%s_arm02_JNT" % side, lowerCtlGrp, mo=1)
+    else:
+        mc.parentConstraint("%s_leg00_JNT" % side, upperCtlGrp, mo=1)
+        mc.parentConstraint("%s_leg01_JNT" % side, lowerCtlGrp, mo=1)
+
+    mc.delete(upperJoint)
+    mc.delete(lowerJoint)
 def main():
     # Create a new file and import model and guides
     mc.file(new=1, force=1)
@@ -953,6 +1009,9 @@ def main():
         )
         # Build Hand structure and controls:
         hand = HandComponent(side)
+        buildUpperLowerLimbControl(side, "arm")
+        buildUpperLowerLimbControl(side, "leg")
+
     # Housekeeping:
     # Geometry in hierarchy
     mc.setAttr("C_geometry_GRP.inheritsTransform", 0)
