@@ -302,7 +302,6 @@ class HandComponent:
 
 def curlStretch(side, name, ctlsOfsList):
     # Create and position control:
-    print(name, ctlsOfsList)
     curlCtl, _, curlCtllGrp = buildControl(side, name, ctlsOfsList[0])
     mc.move(0, 5, 0, curlCtl + ".cv[*]", r=1)
     mc.rotate(0, 90, 0, curlCtl + ".cv[*]", ws=1, r=1)
@@ -803,8 +802,6 @@ def orientToParent(parentCtl, drivenCtl, drivenGrp, worldControl="C_harry_CTL"):
         orientConstraintNode = mc.orientConstraint(
             worldControl, parentCtl, drivenGrp, mo=1
         )[0]
-
-    print(orientConstraintNode)
     # Connect the attr to the parentCtlConstraint
     mc.connectAttr(orientAttr, orientConstraintNode + ".w1")
     reverse = mc.createNode("reverse", n=drivenGrp[:-4] + "ReverseInfluence_RV")
@@ -812,7 +809,7 @@ def orientToParent(parentCtl, drivenCtl, drivenGrp, worldControl="C_harry_CTL"):
     mc.connectAttr(reverse + ".outputX", orientConstraintNode + ".w0")
 
 
-def buildUpperLowerLimbControl(side, limb):
+def buildUpperLowerLimbControl(side, limb, bendSharpness=3):
     # Create guide joints for the midway controls for ribbons
     upperJoint, lowerJoint = None, None
     if limb == "arm":
@@ -822,12 +819,12 @@ def buildUpperLowerLimbControl(side, limb):
         lowerJoint = mc.duplicate(
             "%s_arm03_JNT" % side, po=1, n="%s_lowerArm_JNT" % side
         )[0]
-    if limb == "leg":
+    elif limb == "leg":
         upperJoint = mc.duplicate(
             "%s_leg01_JNT" % side, po=1, n="%s_upperLeg_JNT" % side
         )[0]
         lowerJoint = mc.duplicate(
-            "%s_leg02_JNT" % side, po=1, n="%s_lowerArm_JNT" % side
+            "%s_leg02_JNT" % side, po=1, n="%s_lowerLeg_JNT" % side
         )[0]
     xPosUpper = mc.getAttr(upperJoint + ".tx") * 0.5
     mc.setAttr(upperJoint + ".tx", xPosUpper)
@@ -848,7 +845,6 @@ def buildUpperLowerLimbControl(side, limb):
         shapeKnots=cs.KNOTS,
         colour=18 if side == "L" else 20,
     )
-    # mc.scale(3, 3, 3, upperCtl + ".cv[*]")
     lowerCtl, _, lowerCtlGrp = buildControl(
         side,
         "%sLower" % limb,
@@ -859,15 +855,188 @@ def buildUpperLowerLimbControl(side, limb):
     )
 
     mc.parent(upperCtlGrp, lowerCtlGrp, "ctls_GRP")
+    # Parent constrain
     if limb == "arm":
         mc.parentConstraint("%s_arm01_JNT" % side, upperCtlGrp, mo=1)
         mc.parentConstraint("%s_arm02_JNT" % side, lowerCtlGrp, mo=1)
     else:
         mc.parentConstraint("%s_leg00_JNT" % side, upperCtlGrp, mo=1)
         mc.parentConstraint("%s_leg01_JNT" % side, lowerCtlGrp, mo=1)
+    jointChainReversed = mc.listRelatives(
+        "%s_%s00_JNT" % (side, limb), ad=1, typ="joint"
+    )
+    jointChain = ["%s_%s00_JNT" % (side, limb)]
+    for joint in reversed(jointChainReversed):
+        jointChain.append(joint)
+    if limb == "leg":
+        jointChain = jointChain[:-1]
+    else:
+        jointChain = jointChain[1:]
+    # Clean up
+    # mc.delete(upperJoint)
+    # mc.delete(lowerJoint)
 
-    mc.delete(upperJoint)
-    mc.delete(lowerJoint)
+    # def buildNurbsSurface(limb, upperCtl, lowerCtl):
+    positionOrder = []
+    extractedPointLocations = []
+    # Extract joint xyz world space location
+    for jnt in jointChain:
+        loc = mc.spaceLocator()
+        mc.parent(loc, jnt, r=1)
+        positionOrder.append(mc.pointPosition(loc, w=1))
+        mc.delete(loc)
+    for locId in range(len(positionOrder)):
+        if locId == 2 or locId == 4:
+            for i in range(bendSharpness):
+                extractedPointLocations.append(positionOrder[locId])
+        else:
+            extractedPointLocations.append(positionOrder[locId])
+    # Create guide curve and clusters and parent them under the appropriate controls:
+    baseCurve = mc.curve(
+        n="%s_%sNURBS_CRV" % (side, limb), d=3, p=extractedPointLocations
+    )
+    firstCurve, secondCurve = None, None
+    curveClusters = []
+    ctlsList = []
+    if limb == "arm":
+        ctlsList = [
+            "%s_arm01Fk_CTL" % side,
+            "%s_armUpper_CTL" % side,
+            "%s_arm02Fk_CTL" % side,
+            "%s_armLower_CTL" % side,
+            "%s_arm03Fk_CTL" % side,
+            "%s_arm03Fk_CTL" % side,
+        ]
+    else:
+        ctlsList = [
+            "%s_leg00Fk_CTL" % side,
+            "%s_legUpper_CTL" % side,
+            "%s_leg01Fk_CTL" % side,
+            "%s_legLower_CTL" % side,
+            "%s_leg02Fk_CTL" % side,
+            "%s_leg03Fk_CTL" % side,
+        ]
+    for counter, cvIDs in enumerate(["0", "1", "2:4", "5", "6:8", "9"]):
+        cvs = baseCurve + ".cv[%s]" % cvIDs
+
+        _, clusterHandle = mc.cluster(
+            cvs, name="%s_%s%s_CLS" % (side, limb, str(counter).zfill(2))
+        )
+        curveClusters.append(clusterHandle)
+        mc.parent(clusterHandle, ctlsList[counter])
+    # Move curve in local space, create first curve
+    for clsId in range(len(curveClusters)):
+        if limb == "arm":
+            mc.move(
+                mc.getAttr(curveClusters[clsId] + ".ty") + 1,
+                curveClusters[clsId],
+                y=1,
+                ls=1,
+            )
+        if limb == "leg":
+            if clsId <= 3:
+                mc.move(
+                    mc.getAttr(curveClusters[clsId] + ".ty") + 1,
+                    curveClusters[clsId],
+                    y=1,
+                    ls=1,
+                )
+            else:
+                mc.move(
+                    mc.getAttr(curveClusters[clsId] + ".tx") + 1,
+                    curveClusters[clsId],
+                    x=1,
+                    ls=1,
+                )
+
+    firstCurve = mc.duplicate(baseCurve)
+    # Move curve in local space to create second curve
+    for clsId in range(len(curveClusters)):
+        if limb == "arm":
+            mc.move(
+                mc.getAttr(curveClusters[clsId] + ".ty") - 2,
+                curveClusters[clsId],
+                y=1,
+                ls=1,
+            )
+        if limb == "leg":
+            if clsId <= 3:
+                mc.move(
+                    mc.getAttr(curveClusters[clsId] + ".ty") - 2,
+                    curveClusters[clsId],
+                    y=1,
+                    ls=1,
+                )
+            else:
+                mc.move(
+                    mc.getAttr(curveClusters[clsId] + ".tx") - 2,
+                    curveClusters[clsId],
+                    x=1,
+                    ls=1,
+                )
+    secondCurve = mc.duplicate(baseCurve)
+
+    # Create NURBS surface
+    nurbsSfs = mc.loft(
+        firstCurve, secondCurve, d=3, ch=0, n="%s_%sNURBS_SFS" % (side, limb), po=0
+    )[0]
+    mc.delete(firstCurve, secondCurve, baseCurve)
+    # Rotate wrist NURBS CVs:
+    if limb == "arm":
+        if side == "L":
+            mc.rotate(
+                90,
+                0,
+                0,
+                nurbsSfs + ".cv[0:3][6:9]",
+                os=1,
+                fo=1,
+                r=1,
+                p=[52.490207, 94.25426, -7.880189],
+            )
+        else:
+            mc.rotate(
+                90,
+                0,
+                0,
+                nurbsSfs + ".cv[0:3][6:9]",
+                os=1,
+                fo=1,
+                r=1,
+                p=[-52.490207, 94.25426, -7.880189],
+            )
+    mc.parent(nurbsSfs, "rig_GRP")
+
+    # Cluster and parent to correct joint/ctl:
+    clusterParents = None
+    if limb == "arm":
+        clusterParents = [
+            "%s_arm01_JNT" % side,
+            "%s_armUpper_CTL" % side,
+            "%s_arm02_JNT" % side,
+            "%s_armLower_CTL" % side,
+            "%s_arm03_JNT" % side,
+            "%s_arm04_JNT" % side,
+        ]
+    else:
+        clusterParents = [
+            "%s_leg00_JNT" % side,
+            "%s_legUpper_CTL" % side,
+            "%s_leg01_JNT" % side,
+            "%s_legLower_CTL" % side,
+            "%s_leg02_JNT" % side,
+            "%s_leg03_JNT" % side,
+        ]
+    for counter, cvIDs in enumerate(["0", "1", "2:4", "5", "6:8", "9"]):
+        cvs = nurbsSfs + ".cv[0:3][%s]" % cvIDs
+
+        _, clusterHandle = mc.cluster(
+            cvs, name="%s_%sNURBS%s_CLS" % (side, limb, str(counter).zfill(2))
+        )
+        curveClusters.append(clusterHandle)
+        mc.parent(clusterHandle, clusterParents[counter])
+
+
 def main():
     # Create a new file and import model and guides
     mc.file(new=1, force=1)
@@ -949,6 +1118,8 @@ def main():
         # Build foot roll:
         footRollSetup(side, footIkCtl)
 
+        buildUpperLowerLimbControl(side, "leg")
+
     # Build arm FK ctls. IK chain, Handle and Ctls
     for side in "LR":
         # Build IK chain and FK ctls
@@ -1010,7 +1181,6 @@ def main():
         # Build Hand structure and controls:
         hand = HandComponent(side)
         buildUpperLowerLimbControl(side, "arm")
-        buildUpperLowerLimbControl(side, "leg")
 
     # Housekeeping:
     # Geometry in hierarchy
