@@ -978,7 +978,7 @@ def buildBendyLimbs(side, limb, bendSharpness=3):
 
     # Create NURBS surface
     nurbsSfs = mc.loft(
-        firstCurve, secondCurve, d=1, ch=0, n="%s_%sNURBS_SFS" % (side, limb), po=0, rsn=1
+        firstCurve, secondCurve, d=3, ch=0, n="%s_%sNURBS_SFS" % (side, limb), po=0
     )[0]
     mc.delete(firstCurve, secondCurve, baseCurve)
     # Rotate wrist NURBS CVs:
