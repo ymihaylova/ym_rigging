@@ -809,7 +809,7 @@ def orientToParent(parentCtl, drivenCtl, drivenGrp, worldControl="C_harry_CTL"):
     mc.connectAttr(reverse + ".outputX", orientConstraintNode + ".w0")
 
 
-def buildUpperLowerLimbControl(side, limb, bendSharpness=3):
+def buildBendyLimbs(side, limb, bendSharpness=3):
     # Create guide joints for the midway controls for ribbons
     upperJoint, lowerJoint = None, None
     if limb == "arm":
@@ -978,7 +978,7 @@ def buildUpperLowerLimbControl(side, limb, bendSharpness=3):
 
     # Create NURBS surface
     nurbsSfs = mc.loft(
-        firstCurve, secondCurve, d=3, ch=0, n="%s_%sNURBS_SFS" % (side, limb), po=0
+        firstCurve, secondCurve, d=1, ch=0, n="%s_%sNURBS_SFS" % (side, limb), po=0, rsn=1
     )[0]
     mc.delete(firstCurve, secondCurve, baseCurve)
     # Rotate wrist NURBS CVs:
@@ -1118,7 +1118,7 @@ def main():
         # Build foot roll:
         footRollSetup(side, footIkCtl)
 
-        buildUpperLowerLimbControl(side, "leg")
+        buildBendyLimbs(side, "leg")
 
     # Build arm FK ctls. IK chain, Handle and Ctls
     for side in "LR":
@@ -1180,7 +1180,7 @@ def main():
         )
         # Build Hand structure and controls:
         hand = HandComponent(side)
-        buildUpperLowerLimbControl(side, "arm")
+        buildBendyLimbs(side, "arm")
 
     # Housekeeping:
     # Geometry in hierarchy
