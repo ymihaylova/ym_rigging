@@ -2,7 +2,7 @@ from maya import cmds as mc
 from maya.api import OpenMaya as om2
 from ym_rigging.general import ctl_shapes as cs
 from ym_rigging.general import general as gen
-
+from ym_rigging.general import parameters as prm
 
 DEBUG_MODE = True
 
@@ -99,6 +99,7 @@ class SpineComponent:
         mc.setAttr(jointStretch + ".input2.input2X", mc.getAttr("C_spine01_JNT.tx"))
         for jnt in jointChain:
             mc.connectAttr(jointStretch + ".output.outputX", jnt + ".tx")
+            addToSkinJoints(jnt)
         # Spline IK handle:
         splineIkh, _ = mc.ikHandle(
             sj="C_spine00_JNT",
@@ -120,6 +121,9 @@ class SpineComponent:
         mc.setAttr(splineIkh + ".dWorldUpVectorEnd", -1, 0, 0)
         mc.connectAttr(spineCtls[0] + ".worldMatrix", splineIkh + ".dWorldUpMatrix")
         mc.connectAttr(spineCtls[-1] + ".worldMatrix", splineIkh + ".dWorldUpMatrixEnd")
+        # Housekeeping:
+        addToSkinJoints("C_hips_JNT")
+        addToSkinJoints("C_chest_JNT")
 
 
 class NeckComponent:
@@ -809,7 +813,7 @@ def orientToParent(parentCtl, drivenCtl, drivenGrp, worldControl="C_harry_CTL"):
     mc.connectAttr(reverse + ".outputX", orientConstraintNode + ".w0")
 
 
-def buildBendyLimbs(side, limb, bendSharpness=3):
+def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpness=3):
     # Create guide joints for the midway controls for ribbons
     upperJoint, lowerJoint = None, None
     if limb == "arm":
@@ -872,10 +876,6 @@ def buildBendyLimbs(side, limb, bendSharpness=3):
         jointChain = jointChain[:-1]
     else:
         jointChain = jointChain[1:]
-    # Clean up
-    # mc.delete(upperJoint)
-    # mc.delete(lowerJoint)
-
     # def buildNurbsSurface(limb, upperCtl, lowerCtl):
     positionOrder = []
     extractedPointLocations = []
@@ -886,12 +886,34 @@ def buildBendyLimbs(side, limb, bendSharpness=3):
         positionOrder.append(mc.pointPosition(loc, w=1))
         mc.delete(loc)
     for locId in range(len(positionOrder)):
-        if locId == 2 or locId == 4:
-            for i in range(bendSharpness):
+        if locId == 2:
+            for i in range(elbowKneeBendSharpness):
                 extractedPointLocations.append(positionOrder[locId])
+        elif locId == 4:
+            for i in range(wristAnkleBendSharpness):
+                extractedPointLocations.append(positionOrder[locId])
+
         else:
             extractedPointLocations.append(positionOrder[locId])
+
+    # Clean up:
+    mc.delete(upperJoint)
+    mc.delete(lowerJoint)
+
     # Create guide curve and clusters and parent them under the appropriate controls:
+    # Variation in CV order depending on knee or elbow/ wrist and ankle bend sharpness:
+    cvOrder = []
+    if elbowKneeBendSharpness == 2:
+        if wristAnkleBendSharpness == 2:
+            cvOrder = ["0", "1", "2:3", "4", "5:6", "7"]
+        elif wristAnkleBendSharpness == 3:
+            cvOrder = ["0", "1", "2:3", "4", "5:7", "8"]
+    elif elbowKneeBendSharpness == 3:
+        if wristAnkleBendSharpness == 2:
+            cvOrder = ["0", "1", "2:4", "5", "6:7", "8"]
+        elif wristAnkleBendSharpness == 3:
+            cvOrder = ["0", "1", "2:4", "5", "6:8", "9"]
+
     baseCurve = mc.curve(
         n="%s_%sNURBS_CRV" % (side, limb), d=3, p=extractedPointLocations
     )
@@ -916,7 +938,7 @@ def buildBendyLimbs(side, limb, bendSharpness=3):
             "%s_leg02Fk_CTL" % side,
             "%s_leg03Fk_CTL" % side,
         ]
-    for counter, cvIDs in enumerate(["0", "1", "2:4", "5", "6:8", "9"]):
+    for counter, cvIDs in enumerate(cvOrder):
         cvs = baseCurve + ".cv[%s]" % cvIDs
 
         _, clusterHandle = mc.cluster(
@@ -978,33 +1000,24 @@ def buildBendyLimbs(side, limb, bendSharpness=3):
 
     # Create NURBS surface
     nurbsSfs = mc.loft(
-        firstCurve, secondCurve, d=3, ch=0, n="%s_%sNURBS_SFS" % (side, limb), po=0
+        firstCurve,
+        secondCurve,
+        d=1,
+        u=1,
+        rn=0,
+        rsn=True,
+        ch=0,
+        n="%s_%sNURBS_SFS" % (side, limb),
+        po=0,
     )[0]
     mc.delete(firstCurve, secondCurve, baseCurve)
     # Rotate wrist NURBS CVs:
     if limb == "arm":
-        if side == "L":
-            mc.rotate(
-                90,
-                0,
-                0,
-                nurbsSfs + ".cv[0:3][6:9]",
-                os=1,
-                fo=1,
-                r=1,
-                p=[52.490207, 94.25426, -7.880189],
-            )
-        else:
-            mc.rotate(
-                90,
-                0,
-                0,
-                nurbsSfs + ".cv[0:3][6:9]",
-                os=1,
-                fo=1,
-                r=1,
-                p=[-52.490207, 94.25426, -7.880189],
-            )
+        dummyTransform = mc.createNode("transform", parent="%s_arm03_JNT" % side)
+        _, dummyCluster = mc.cluster(nurbsSfs + ".cv[6:9][0:1]")
+        mc.parent(dummyCluster, dummyTransform)
+        mc.rotate(90, 0, 0, dummyTransform)
+        mc.delete(nurbsSfs, ch=1)
     mc.parent(nurbsSfs, "rig_GRP")
 
     # Cluster and parent to correct joint/ctl:
@@ -1027,14 +1040,45 @@ def buildBendyLimbs(side, limb, bendSharpness=3):
             "%s_leg02_JNT" % side,
             "%s_leg03_JNT" % side,
         ]
-    for counter, cvIDs in enumerate(["0", "1", "2:4", "5", "6:8", "9"]):
-        cvs = nurbsSfs + ".cv[0:3][%s]" % cvIDs
+    for counter, cvIDs in enumerate(cvOrder):
+        cvs = nurbsSfs + ".cv[%s][0:1]" % cvIDs
 
         _, clusterHandle = mc.cluster(
             cvs, name="%s_%sNURBS%s_CLS" % (side, limb, str(counter).zfill(2))
         )
         curveClusters.append(clusterHandle)
         mc.parent(clusterHandle, clusterParents[counter])
+
+    createBindJoints(side, limb, nurbsSfs)
+
+
+def createBindJoints(side, limb, nurbsSfs):
+    grp = mc.createNode("transform", n="%s_%sBindFlcJoint_GRP" % (side, limb))
+    mc.parent(grp, "rig_GRP")
+    paramUList = []
+    follicle = None
+    folliclesList = []
+    if limb == "arm":
+        paramUList = prm.PARAM_U_ARMS
+    else:
+        paramUList = prm.PARAM_U_LEGS
+
+    for paramU in paramUList:
+        follicle = gen.createFollicle(nurbsSfs, parameterU=paramU, parameterV=0.5)
+        follicle = mc.rename(
+            follicle,
+            "%s_%sBind%s_FLC" % (side, limb, str(paramUList.index(paramU)).zfill(2)),
+        )
+        folliclesList.append(follicle)
+        mc.parent(follicle, grp)
+
+        bindJoint = mc.createNode(
+            "joint",
+            name="%s_%sBind%s_JNT"
+            % (side, limb, str(paramUList.index(paramU)).zfill(2)),
+        )
+        mc.parent(bindJoint, follicle, r=1)
+        addToSkinJoints(bindJoint)
 
 
 def main():

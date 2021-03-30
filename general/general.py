@@ -42,3 +42,17 @@ def getIkhPoleVecPos(ikHandle):
     poleVectorPos = getPoleVectorPosition(rootJntPos, midJntPos, endJntPos)
 
     return poleVectorPos
+
+
+def createFollicle(nurbsSurface, parameterU, parameterV=0.5):
+    follicleShape = mc.createNode("follicle")
+    follicleTransform = mc.listRelatives(follicleShape, p=1)[0]
+
+    mc.connectAttr(nurbsSurface + ".worldSpace", follicleShape + ".inputSurface")
+    mc.connectAttr(follicleShape + ".outTranslate", follicleTransform + ".translate")
+    mc.connectAttr(follicleShape + ".outRotate", follicleTransform + ".rotate")
+
+    mc.setAttr(follicleShape + ".parameterU", parameterU)
+    mc.setAttr(follicleShape + ".parameterV", parameterV)
+
+    return follicleTransform
