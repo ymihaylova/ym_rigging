@@ -327,6 +327,17 @@ def curlStretch(side, name, ctlsOfsList):
     for ctlOfs in ctlsOfsList[1:]:
         mc.connectAttr(curlAdditive + ".output", ctlOfs + ".rotateZ")
 
+    mc.setAttr(curlCtl + ".tx", lock=True, k=False, channelBox=False)
+    mc.setAttr(curlCtl + ".ty", lock=True, k=False, channelBox=False)
+    mc.setAttr(curlCtl + ".tz", lock=True, k=False, channelBox=False)
+    mc.setAttr(curlCtl + ".rx", lock=True, k=False, channelBox=False)
+    mc.setAttr(curlCtl + ".ry", lock=True, k=False, channelBox=False)
+    mc.setAttr(curlCtl + ".rz", lock=True, k=False, channelBox=False)
+    mc.setAttr(curlCtl + ".sx", lock=True, k=False, channelBox=False)
+    mc.setAttr(curlCtl + ".sy", lock=True, k=False, channelBox=False)
+    mc.setAttr(curlCtl + ".sz", lock=True, k=False, channelBox=False)
+    mc.setAttr(curlCtl + ".v", lock=True, k=False, channelBox=False)
+
 
 def buildControl(
     side, name, guide=None, shapeCVs=[], shapeKnots=None, degree=1, colour=17
@@ -375,7 +386,7 @@ def buildLimb(side, name, parent, skinJointsMessageAttr):
             blendChain[jntId],
             colour=18 if side == "L" else 20,
         )
-
+        # Clean up attribute visibility:
         if prevFkCtlGrp is not None:
             mc.parent(fkCtlGrp, prevFkCtl)
         else:
@@ -667,6 +678,17 @@ def createConnectIkFkSwitch(
         mc.connectAttr(ikFkSwitchAttr, ctl + ".v")
     # Place switch in the hierarchy
     mc.parent(ikFkSwitchGrp, "%s_%s_GRP" % (side, name))
+    # Clean up:
+    mc.setAttr(ikFkSwitchCtl + ".tx", lock=True, k=False, channelBox=False)
+    mc.setAttr(ikFkSwitchCtl + ".ty", lock=True, k=False, channelBox=False)
+    mc.setAttr(ikFkSwitchCtl + ".tz", lock=True, k=False, channelBox=False)
+    mc.setAttr(ikFkSwitchCtl + ".rx", lock=True, k=False, channelBox=False)
+    mc.setAttr(ikFkSwitchCtl + ".ry", lock=True, k=False, channelBox=False)
+    mc.setAttr(ikFkSwitchCtl + ".rz", lock=True, k=False, channelBox=False)
+    mc.setAttr(ikFkSwitchCtl + ".sx", lock=True, k=False, channelBox=False)
+    mc.setAttr(ikFkSwitchCtl + ".sy", lock=True, k=False, channelBox=False)
+    mc.setAttr(ikFkSwitchCtl + ".sz", lock=True, k=False, channelBox=False)
+    mc.setAttr(ikFkSwitchCtl + ".v", lock=True, k=False, channelBox=False)
 
     return reversalNodeIkFk + ".output1D", ikFkSwitchAttr
 
@@ -1081,6 +1103,11 @@ def createBindJoints(side, limb, nurbsSfs):
         addToSkinJoints(bindJoint)
 
 
+def lockAndHide(node, attrList):
+    for attr in attrList:
+        mc.setAttr(node + attr, lock=True, k=False, channelBox=False)
+
+
 def main():
     # Create a new file and import model and guides
     mc.file(new=1, force=1)
@@ -1227,6 +1254,12 @@ def main():
         buildBendyLimbs(side, "arm")
 
     # Housekeeping:
+    # Basic skin geometry:
+    skinJoints = mc.listConnections("C_harry_CTL.skinJoints")
+    geo = mc.ls("*_PLY")
+
+    for ply in geo:
+        mc.skinCluster(skinJoints, ply, bm=0, sm=0, nw=1, wd=0, mi=4, rui=0, dr=4.0)
     # Geometry in hierarchy
     mc.setAttr("C_geometry_GRP.inheritsTransform", 0)
     mc.parent("C_geometry_GRP", harryCtl)
