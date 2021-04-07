@@ -219,6 +219,10 @@ class NeckComponent:
         # Orient to parent/world
         orientToParent("C_chest_CTL", "C_head_CTL", "C_head_GRP")
 
+        if not DEBUG_MODE:
+            lockAndHide(headCtl, ".sxyz")
+            lockAndHide(neckBaseCtl, ".sxyz")
+
 
 class HandComponent:
     def __init__(self, side):
@@ -302,6 +306,13 @@ class HandComponent:
                 prevCtl, prevCtlGrp = ctl, ctlGrp
 
             curlStretch(side, "%sCurl" % ctlsList[0][2:-4], ctlsOfsList)
+            # Clean up:
+            if not DEBUG_MODE:
+                for ctl in ctlsList:
+                    lockAndHide(ctl, ".txyz")
+                    lockAndHide(ctl, ".sxyz")
+                for jntChain in fingerJointChains:
+                    mc.setAttr(jntChain[0] + ".v", 0)
 
 
 def curlStretch(side, name, ctlsOfsList):
@@ -511,6 +522,12 @@ def buildLimb(side, name, parent, skinJointsMessageAttr):
 
     if not DEBUG_MODE:
         mc.hide(blendChain, ikChain)
+        for ctl in fkCtlsList:
+            lockAndHide(fkCtl, ".txyz")
+            lockAndHide(fkCtl, ".sxyz")
+        lockAndHide(ikBaseCtl, ".rxyz")
+        lockAndHide(ikBaseCtl, ".sxyz")
+        lockAndHide(ikCtl, ".sxyz")
 
     return (
         blendChain,
@@ -879,6 +896,11 @@ def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpnes
         shapeKnots=cs.KNOTS,
         colour=18 if side == "L" else 20,
     )
+    if not DEBUG_MODE:
+        lockAndHide(upperCtl, ".rxyz")
+        lockAndHide(upperCtl, ".sxyz")
+        lockAndHide(lowerCtl, ".rxyz")
+        lockAndHide(lowerCtl, ".sxyz")
 
     mc.parent(upperCtlGrp, lowerCtlGrp, "ctls_GRP")
     # Parent constrain
@@ -923,18 +945,6 @@ def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpnes
     mc.delete(lowerJoint)
 
     # Create guide curve and clusters and parent them under the appropriate controls:
-    # Variation in CV order depending on knee or elbow/ wrist and ankle bend sharpness:
-    cvOrder = []
-    if elbowKneeBendSharpness == 2:
-        if wristAnkleBendSharpness == 2:
-            cvOrder = ["0", "1", "2:3", "4", "5:6", "7"]
-        elif wristAnkleBendSharpness == 3:
-            cvOrder = ["0", "1", "2:3", "4", "5:7", "8"]
-    elif elbowKneeBendSharpness == 3:
-        if wristAnkleBendSharpness == 2:
-            cvOrder = ["0", "1", "2:4", "5", "6:7", "8"]
-        elif wristAnkleBendSharpness == 3:
-            cvOrder = ["0", "1", "2:4", "5", "6:8", "9"]
 
     baseCurve = mc.curve(
         n="%s_%sNURBS_CRV" % (side, limb), d=3, p=extractedPointLocations
@@ -960,6 +970,25 @@ def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpnes
             "%s_leg02Fk_CTL" % side,
             "%s_leg03Fk_CTL" % side,
         ]
+
+    # Variation in CV order depending on knee or elbow/ wrist and ankle bend sharpness:
+    cvOrder = []
+    dummyClusterCVs = None
+    if elbowKneeBendSharpness == 2:
+        if wristAnkleBendSharpness == 2:
+            cvOrder = ["0", "1", "2:3", "4", "5:6", "7"]
+            dummyClusterCVs = "5:7"
+        elif wristAnkleBendSharpness == 3:
+            cvOrder = ["0", "1", "2:3", "4", "5:7", "8"]
+            dummyClusterCVs = "5:8"
+    elif elbowKneeBendSharpness == 3:
+        if wristAnkleBendSharpness == 2:
+            cvOrder = ["0", "1", "2:4", "5", "6:7", "8"]
+            dummyClusterCVs = "6:8"
+        elif wristAnkleBendSharpness == 3:
+            cvOrder = ["0", "1", "2:4", "5", "6:8", "9"]
+            dummyClusterCVs = "6:9"
+
     for counter, cvIDs in enumerate(cvOrder):
         cvs = baseCurve + ".cv[%s]" % cvIDs
 
@@ -968,6 +997,7 @@ def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpnes
         )
         curveClusters.append(clusterHandle)
         mc.parent(clusterHandle, ctlsList[counter])
+
     # Move curve in local space, create first curve
     for clsId in range(len(curveClusters)):
         if limb == "arm":
@@ -1029,14 +1059,33 @@ def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpnes
         rn=0,
         rsn=True,
         ch=0,
-        n="%s_%sNURBS_SFS" % (side, limb),
+        n="%s_%sSurfase_NRB" % (side, limb),
         po=0,
     )[0]
     mc.delete(firstCurve, secondCurve, baseCurve)
+
+    # Variation in CV order depending on knee or elbow/ wrist and ankle bend sharpness:
+    cvOrder = []
+    dummyClusterCVs = None
+    if elbowKneeBendSharpness == 2:
+        if wristAnkleBendSharpness == 2:
+            cvOrder = ["0", "1", "2:3", "4", "5:6", "7"]
+            dummyClusterCVs = "5:7"
+        elif wristAnkleBendSharpness == 3:
+            cvOrder = ["0", "1", "2:3", "4", "5:7", "8"]
+            dummyClusterCVs = "5:8"
+    elif elbowKneeBendSharpness == 3:
+        if wristAnkleBendSharpness == 2:
+            cvOrder = ["0", "1", "2:4", "5", "6:7", "8"]
+            dummyClusterCVs = "6:8"
+        elif wristAnkleBendSharpness == 3:
+            cvOrder = ["0", "1", "2:4", "5", "6:8", "9"]
+            dummyClusterCVs = "6:9"
+
     # Rotate wrist NURBS CVs:
     if limb == "arm":
         dummyTransform = mc.createNode("transform", parent="%s_arm03_JNT" % side)
-        _, dummyCluster = mc.cluster(nurbsSfs + ".cv[6:9][0:1]")
+        _, dummyCluster = mc.cluster(nurbsSfs + ".cv[%s][0:1]" % dummyClusterCVs)
         mc.parent(dummyCluster, dummyTransform)
         mc.rotate(90, 0, 0, dummyTransform)
         mc.delete(nurbsSfs, ch=1)
@@ -1070,12 +1119,19 @@ def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpnes
         )
         curveClusters.append(clusterHandle)
         mc.parent(clusterHandle, clusterParents[counter])
+        if DEBUG_MODE == False:
+            mc.setAttr(clusterHandle + ".visibility", 0)
 
     createBindJoints(side, limb, nurbsSfs)
+
+    if DEBUG_MODE == False:
+        mc.setAttr(nurbsSfs + ".v", 0)
 
 
 def createBindJoints(side, limb, nurbsSfs):
     grp = mc.createNode("transform", n="%s_%sBindFlcJoint_GRP" % (side, limb))
+    lockAndHide(grp)
+
     mc.parent(grp, "rig_GRP")
     paramUList = []
     follicle = None
@@ -1101,9 +1157,20 @@ def createBindJoints(side, limb, nurbsSfs):
         )
         mc.parent(bindJoint, follicle, r=1)
         addToSkinJoints(bindJoint)
+        if DEBUG_MODE == False:
+            mc.setAttr(bindJoint + ".v", 0)
+            mc.setAttr(follicle + ".v", 0)
 
 
-def lockAndHide(node, attrList):
+def lockAndHide(
+    node, attrList=[".tx", ".ty", ".tz", ".rx", ".ry", ".rz", ".sx", ".sy", ".sz", ".v"]
+):
+    if attrList == ".txyz":
+        attrList = [".tx", ".ty", ".tz"]
+    elif attrList == ".rxyz":
+        attrList = [".rx", ".ry", ".rz"]
+    elif attrList == ".sxyz":
+        attrList = [".sx", ".sy", ".sz"]
     for attr in attrList:
         mc.setAttr(node + attr, lock=True, k=False, channelBox=False)
 
@@ -1190,6 +1257,32 @@ def main():
         footRollSetup(side, footIkCtl)
 
         buildBendyLimbs(side, "leg")
+        # Clean up:
+        if not DEBUG_MODE:
+            lockAndHide(kneePoleVectorCtl, ".rxyz")
+
+        # Skin and import weights for shoes and socks
+        skinJoints = mc.listConnections("C_harry_CTL.skinJoints")
+        sock = "%s_shoeSock_PLY" % side
+        shoe = "%s_shoe_PLY" % side
+        skinClusterSock = mc.skinCluster(skinJoints, sock, tsb=1)[0]
+        skinClusterShoe = mc.skinCluster(skinJoints, shoe, tsb=1)[0]
+        # mc.deformerWeights(
+        # "HP_%s_sock_skinWeights.xml" % side,
+        # path="/Users/Banana/Desktop/projectFolder/HPScripted/scenes",
+        # deformer=skinClusterSock,
+        # im=1,
+        # method="index",
+        # )
+        # mc.skinCluster(skinClusterSock, e=1, forceNormalizeWeights=True)
+        # mc.deformerWeights(
+        # "HP_%s_shoe_skinWeights.xml" % side,
+        # path="/Users/Banana/Desktop/projectFolder/HPScripted/scenes",
+        # deformer=skinClusterSock,
+        # im=1,
+        # method="index",
+        # )
+        # mc.skinCluster(skinClusterShoe, e=1, forceNormalizeWeights=True)
 
     # Build arm FK ctls. IK chain, Handle and Ctls
     for side in "LR":
@@ -1252,14 +1345,31 @@ def main():
         # Build Hand structure and controls:
         hand = HandComponent(side)
         buildBendyLimbs(side, "arm")
+        # Clean up:
+        if not DEBUG_MODE:
+            lockAndHide(elbowPoleVectorCtl, ".rxyz")
 
     # Housekeeping:
+    groups = mc.ls("*GRP")
+    offsets = mc.ls("*OFS")
+    if DEBUG_MODE == False:
+        for grp in groups:
+            lockAndHide(grp)
+        for ofs in offsets:
+            lockAndHide(ofs)
     # Basic skin geometry:
     skinJoints = mc.listConnections("C_harry_CTL.skinJoints")
-    geo = mc.ls("*_PLY")
+    body = "C_body_PLY"
+    skinCluster = mc.skinCluster(skinJoints, body, tsb=1)[0]
 
-    for ply in geo:
-        mc.skinCluster(skinJoints, ply, bm=0, sm=0, nw=1, wd=0, mi=4, rui=0, dr=4.0)
+    mc.deformerWeights(
+        "HP_body_skinWeights2.xml",
+        path="/Users/Banana/Desktop/projectFolder/HPScripted/scenes",
+        deformer=skinCluster,
+        im=1,
+        method="index",
+    )
+    mc.skinCluster(skinCluster, e=1, forceNormalizeWeights=True)
     # Geometry in hierarchy
     mc.setAttr("C_geometry_GRP.inheritsTransform", 0)
     mc.parent("C_geometry_GRP", harryCtl)
