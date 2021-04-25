@@ -4,7 +4,7 @@ from ym_rigging.general import ctl_shapes as cs
 from ym_rigging.general import general as gen
 from ym_rigging.general import parameters as prm
 
-DEBUG_MODE = True
+DEBUG_MODE = False
 
 
 class SpineComponent:
@@ -126,7 +126,7 @@ class SpineComponent:
         addToSkinJoints("C_chest_JNT")
 
 
-class NeckComponent:
+class HeadComponent:
     def __init__(self, jointChain, jointChainTwist):
         self.build(jointChain, jointChainTwist)
 
@@ -155,6 +155,7 @@ class NeckComponent:
         mc.scale(15, 15, 15, headCtl + ".cv[*]")
         mc.parent(headJnt, headCtl)
         mc.parent(headGrp, neckBaseCtl)
+        mc.setAttr(headJnt + ".ty", 0.001)
         # Aim constrain jointChain to chest and jointChainTwist to head:
         mc.aimConstraint(
             "C_head_CTL",
@@ -222,6 +223,132 @@ class NeckComponent:
         if not DEBUG_MODE:
             lockAndHide(headCtl, ".sxyz")
             lockAndHide(neckBaseCtl, ".sxyz")
+
+
+class FaceComponent:
+    def __init__(self):
+        self.buildLips()
+        # self.buildEyes()
+
+    def buildLips(self):
+        # Create a jaw joint ctl, position it in the hierarchy:
+        jawJnt = "C_jaw00_JNT"
+        jawCtl, _, jawGrp = buildControl(
+            "C", "jaw", jawJnt, shapeCVs=cs.L_CLAVICLE_SHAPE_CVS, shapeKnots=cs.KNOTS
+        )
+        mc.scale(1.5, 1.5, 1.5, jawCtl + ".cv[*]")
+        mc.rotate(0, 0, -72.7, jawCtl + ".cv[*]", os=1, fo=1)
+        mc.move(0, -12, 15, jawCtl + ".cv[*]", r=1, ws=1)
+        mc.parent(jawJnt, jawCtl)
+        mc.parent(jawGrp, "C_head_CTL")
+        addToSkinJoints(jawJnt)
+        # Nurbs surfaces - creating clusters:
+        upperLip = "C_upperLipSfs_NURBS"
+        lowerLip = "C_lowerLipSfs_NURBS"
+        upperCurve = "C_upperLip_CRV"
+        lowerCurve = "C_lowerLip_CRV"
+        lipSurfaces = [upperLip, lowerLip]
+        lipCurves = [upperCurve, lowerCurve]
+        upperLipClusters, lowerLipClusters = [], []
+        # Grouping:
+        upperLipGrp = mc.group(upperLip, upperCurve, n="C_upperLip_GRP")
+        lowerLipGrp = mc.group(lowerLip, lowerCurve, n="C_lowerLip_GRP")
+        mc.parent(upperLipGrp, lowerLipGrp, "rig_GRP")
+        for surface, curve in zip(lipSurfaces, lipCurves):
+            # Create controls, parent constraints and clusters
+            for rowId in range(1, 10):
+                lipClusters, name = None, None
+                if surface == upperLip:
+                    lipClusters = upperLipClusters
+                    name = "upperLip"
+
+                else:
+                    lipClusters = lowerLipClusters
+                    name = "lowerLip"
+
+                cvs = surface + ".cv[%s][0:3]" % rowId
+                if rowId == 1:
+                    cvs = surface + ".cv[0:1][0:3]"
+                    _, clusterHandle = mc.cluster(
+                        cvs, name="C_%s%s_CLS" % (name, str(rowId - 1).zfill(2))
+                    )
+                elif rowId == 9:
+                    cvs = surface + ".cv[9:10][0:3]"
+                    _, clusterHandle = mc.cluster(
+                        cvs, name="C_%s%s_CLS" % (name, str(rowId - 1).zfill(2))
+                    )
+
+                else:
+                    _, clusterHandle = mc.cluster(
+                        cvs, name="C_%s%s_CLS" % (name, str(rowId - 1).zfill(2))
+                    )
+
+                lipClusters.append(clusterHandle)
+                # Build a control per cluster:
+                # keep to 1 ctl per corner:
+
+                if surface == lowerLip and rowId == 1:
+                    control = "C_upperLip00_CTL"
+                    mc.setAttr(control + ".localPositionY", 0)
+                elif surface == lowerLip and rowId == 9:
+                    control = "C_upperLip08_CTL"
+                    mc.setAttr(control + ".localPositionY", 0)
+                else:
+                    control, _, grp = buildControl(
+                        "C",
+                        "%s%s" % (name, str(rowId - 1).zfill(2)),
+                        shapeCVs="locator",
+                        guide=clusterHandle,
+                    )
+                    influenceAttr = gen.addAttr(
+                        control, ln="jawInfluence", at="float", min=0, max=1, k=1
+                    )
+                    mc.setAttr(control + ".localPositionZ", 2)
+                    if surface == upperLip:
+                        mc.setAttr(control + ".localPositionY", 1)
+                    else:
+                        mc.setAttr(control + ".localPositionY", -1)
+                    # Constrain each control to jaw and head joints and provide control over the influence.
+                    parCon = mc.parentConstraint(
+                        "C_head_JNT", "C_jaw00_JNT", control, mo=1
+                    )[0]
+                    mc.connectAttr(influenceAttr, parCon + ".w1")
+                    reverse = mc.createNode(
+                        "reverse",
+                        n="C_%s%sParConReverseInfluence_RV"
+                        % (name, str(rowId - 1).zfill(2)),
+                    )
+                    mc.connectAttr(parCon + ".w1", reverse + ".inputX")
+                    mc.connectAttr(reverse + ".outputX", parCon + ".w0")
+                    mc.parent(grp, "C_head_CTL")
+
+                mc.parent(clusterHandle, control)
+            # Create follicles per CV for each surface:
+            curveCVs = mc.ls(curve + ".cv[0:]", fl=True)
+            print(curveCVs)
+            slList = om2.MSelectionList().add(surface)
+            print(slList)
+            mfnSurface = om2.MFnNurbsSurface(slList.getDagPath(0))
+
+            for cv in curveCVs:
+                position = mc.pointPosition(cv)
+                pt, u, v = mfnSurface.closestPoint(om2.MPoint(position))
+                follicle = gen.createFollicle(surface, parameterU=u, parameterV=v)
+                follicle = mc.rename(
+                    follicle,
+                    "C_%sBind%s_FLC" % (name, str(curveCVs.index(cv)).zfill(2)),
+                )
+
+                bindJoint = mc.createNode(
+                    "joint",
+                    n="C_%sBind%s_JNT" % (name, str(curveCVs.index(cv)).zfill(2)),
+                )
+                mc.parent(bindJoint, follicle, r=1)
+                if surface == upperLip:
+                    mc.parent(follicle, upperLipGrp)
+                else:
+                    mc.parent(follicle, lowerLipGrp)
+                # addToSkinJoints(bindJoint)
 
 
 class HandComponent:
@@ -355,6 +482,8 @@ def buildControl(
 ):
     if not shapeCVs:
         control = mc.circle(constructionHistory=0)[0]
+    elif shapeCVs == "locator":
+        control = mc.spaceLocator()[0]
     else:
         if not shapeKnots:
             control = mc.curve(p=shapeCVs, degree=degree)
@@ -391,12 +520,23 @@ def buildLimb(side, name, parent, skinJointsMessageAttr):
     ikHandle, ikCtl, ikCtlGrp, ikBaseCtl = None, None, None, None
 
     for jntId in range(len(blendChain) - 1):
-        fkCtl, fkCtlOfs, fkCtlGrp = buildControl(
-            side,
-            "%s%sFk" % (name, str(jntId).zfill(2)),
-            blendChain[jntId],
-            colour=18 if side == "L" else 20,
-        )
+        if jntId == 0:
+            fkCtl, fkCtlOfs, fkCtlGrp = buildControl(
+                side,
+                "%s%sFk" % (name, str(jntId).zfill(2)),
+                blendChain[jntId],
+                shapeCVs=cs.L_CLAVICLE_SHAPE_CVS,
+                shapeKnots=cs.KNOTS,
+                colour=18 if side == "L" else 20,
+            )
+        else:
+
+            fkCtl, fkCtlOfs, fkCtlGrp = buildControl(
+                side,
+                "%s%sFk" % (name, str(jntId).zfill(2)),
+                blendChain[jntId],
+                colour=18 if side == "L" else 20,
+            )
         # Clean up attribute visibility:
         if prevFkCtlGrp is not None:
             mc.parent(fkCtlGrp, prevFkCtl)
@@ -419,18 +559,17 @@ def buildLimb(side, name, parent, skinJointsMessageAttr):
                 mc.move(0, -8, 0, ctl + ".cv[*]", ws=1, r=1)
         orientToParent("C_hips_CTL", fkCtlsList[0], fkCtlsGrpList[0])
     if name == "arm":
-        for fkCtl in fkCtlsList:
+        mc.scale(1.5, 1.5, 1.5, fkCtlsList[0] + ".cv[*]")
+        if side == "L":
+            mc.move(8, 8, -2, fkCtlsList[0] + ".cv[*]", ws=1, r=1)
+        else:
+            mc.rotate(-180, 0, 0, fkCtlsList[0] + ".cv[*]", os=1, r=1)
+            mc.move(-8, 8, -2, fkCtlsList[0] + ".cv[*]", ws=1, r=1)
+
+        for fkCtl in fkCtlsList[1:]:
             mc.scale(6, 6, 6, fkCtl + ".cv[*]")
             mc.rotate(0, 90, 0, fkCtl + ".cv[*]", r=1)
 
-            if (
-                fkCtl == fkCtlsList[0]
-            ):  # move the clavicle FK control CVs for visual clarity
-                if side == "L":
-                    mc.move(3, 0, 0, fkCtl + ".cv[*]", ws=1, r=1)
-                else:
-                    mc.move(-3, 0, 0, fkCtl + ".cv[*]", ws=1, r=1)
-                mc.scale(1.5, 1.5, 1.5, fkCtl + ".cv[*]")
             if fkCtl == fkCtlsList[1]:
                 if side == "L":
                     mc.move(3, 0, 0, fkCtl + ".cv[*]", ws=1, r=1)
@@ -448,7 +587,7 @@ def buildLimb(side, name, parent, skinJointsMessageAttr):
 
     limbGrp = mc.group(blendChain[0], ikChain[0])
     limbGrp = mc.rename(limbGrp, "%s_%s_GRP" % (side, name))
-    mc.parent(limbGrp, parent)
+    mc.parent(limbGrp, fkCtlsList[0])
 
     # Create IK ctl and handle for the leg:
     if name == "leg":
@@ -487,7 +626,7 @@ def buildLimb(side, name, parent, skinJointsMessageAttr):
             shapeCVs=cs.SQUARE_SHAPE_CVS,
             colour=18 if side == "L" else 20,
         )
-        mc.parent(ikBaseCtlGrp, parent)
+        mc.parent(ikBaseCtlGrp, fkCtlsList[0])
         mc.parent(ikChain[0], ikBaseCtl)
         mc.scale(6, 6, 6, ikBaseCtl + ".cv[*]")
         mc.rotate(0, 0, 90, ikBaseCtl + ".cv[*]", r=1)
@@ -1192,7 +1331,8 @@ def main():
 
     # Build spine
     spine = SpineComponent(mc.ls("C_spine??_JNT"), "C_spine_CRV")
-    neck = NeckComponent(mc.ls("C_neck??_JNT"), mc.ls("C_neckWithTwist??_JNT"))
+    neck = HeadComponent(mc.ls("C_neck??_JNT"), mc.ls("C_neckWithTwist??_JNT"))
+    mouth = FaceComponent()
 
     # Build leg FK ctls. IK chain, Handle and Ctls
     for side in "LR":
@@ -1262,27 +1402,34 @@ def main():
             lockAndHide(kneePoleVectorCtl, ".rxyz")
 
         # Skin and import weights for shoes and socks
-        skinJoints = mc.listConnections("C_harry_CTL.skinJoints")
+        sockSkinJoints = [
+            "%s_legBind12_JNT" % side,
+            "%s_legBind13_JNT" % side,
+            "%s_legBind14_JNT" % side,
+            "%s_legBind16_JNT" % side,
+            "%s_leg03_JNT" % side,
+        ]
+        shoeSkinJoints = ["%s_legBind16_JNT" % side, "%s_leg03_JNT" % side]
         sock = "%s_shoeSock_PLY" % side
         shoe = "%s_shoe_PLY" % side
-        skinClusterSock = mc.skinCluster(skinJoints, sock, tsb=1)[0]
-        skinClusterShoe = mc.skinCluster(skinJoints, shoe, tsb=1)[0]
-        # mc.deformerWeights(
-        # "HP_%s_sock_skinWeights.xml" % side,
-        # path="/Users/Banana/Desktop/projectFolder/HPScripted/scenes",
-        # deformer=skinClusterSock,
-        # im=1,
-        # method="index",
-        # )
+        skinClusterSock = mc.skinCluster(sockSkinJoints, sock, tsb=1)[0]
+        skinClusterShoe = mc.skinCluster(shoeSkinJoints, shoe, tsb=1)[0]
+        mc.deformerWeights(
+            "%s_sock_skinWeights.xml" % side,
+            path="/Users/Banana/Desktop/projectFolder/HPScripted/scenes",
+            deformer=skinClusterSock,
+            im=1,
+            method="index",
+        )
         # mc.skinCluster(skinClusterSock, e=1, forceNormalizeWeights=True)
-        # mc.deformerWeights(
-        # "HP_%s_shoe_skinWeights.xml" % side,
-        # path="/Users/Banana/Desktop/projectFolder/HPScripted/scenes",
-        # deformer=skinClusterSock,
-        # im=1,
-        # method="index",
-        # )
-        # mc.skinCluster(skinClusterShoe, e=1, forceNormalizeWeights=True)
+        mc.deformerWeights(
+            "%s_shoe_skinWeights.xml" % side,
+            path="/Users/Banana/Desktop/projectFolder/HPScripted/scenes",
+            deformer=skinClusterShoe,
+            im=1,
+            method="index",
+        )
+        mc.skinCluster(skinClusterShoe, e=1, forceNormalizeWeights=True)
 
     # Build arm FK ctls. IK chain, Handle and Ctls
     for side in "LR":
@@ -1340,7 +1487,7 @@ def main():
             blendTranslationsNode,
             ikCtlsGrp,
             ikBaseCtl,
-            fkCtlsGrpList,
+            fkCtlsGrpList[1:],
         )
         # Build Hand structure and controls:
         hand = HandComponent(side)
@@ -1361,9 +1508,10 @@ def main():
     skinJoints = mc.listConnections("C_harry_CTL.skinJoints")
     body = "C_body_PLY"
     skinCluster = mc.skinCluster(skinJoints, body, tsb=1)[0]
+    mc.setAttr(skinCluster + ".skinningMethod", 2)
 
     mc.deformerWeights(
-        "HP_body_skinWeights2.xml",
+        "body_skinWeights1.xml",
         path="/Users/Banana/Desktop/projectFolder/HPScripted/scenes",
         deformer=skinCluster,
         im=1,
