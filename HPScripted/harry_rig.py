@@ -124,6 +124,8 @@ class SpineComponent:
         # Housekeeping:
         addToSkinJoints("C_hips_JNT")
         addToSkinJoints("C_chest_JNT")
+        if DEBUG_MODE == False:
+            mc.hide(jointChain)
 
 
 class HeadComponent:
@@ -198,7 +200,7 @@ class HeadComponent:
         for jnt in jointChain[1:]:
             jointStretch = mc.createNode(
                 "multiplyDivide",
-                n="C_Neck%sIndividualStretch_MDV" % str(jointChain.index(jnt)).zfill(2),
+                n="C_neck%sIndividualStretch_MDV" % str(jointChain.index(jnt)).zfill(2),
             )
             jntTx = mc.getAttr(jnt + ".tx")
             mc.setAttr(jointStretch + ".input1.input1X", jntTx)
@@ -208,7 +210,7 @@ class HeadComponent:
             mc.connectAttr(jointStretch + ".output.outputX", jnt + ".tx")
         # Stretch jointChainTwist:
         jointStretch = mc.createNode(
-            "multiplyDivide", n="C_NeckWithTwist01IndividualStretch_MDV"
+            "multiplyDivide", n="C_neckWithTwist01IndividualStretch_MDV"
         )
         mc.setAttr(
             jointStretch + ".input1.input1X", mc.getAttr(jointChainTwist[-1] + ".tx")
@@ -223,6 +225,9 @@ class HeadComponent:
         if not DEBUG_MODE:
             lockAndHide(headCtl, ".sxyz")
             lockAndHide(neckBaseCtl, ".sxyz")
+            mc.setAttr(headJnt + ".v", 0)
+            mc.setAttr(jointChain[0] + ".v", 0)
+            mc.setAttr(jointChainTwist[0] + ".v", 0)
 
 
 class FaceComponent:
@@ -243,16 +248,16 @@ class FaceComponent:
         mc.parent(jawGrp, "C_head_CTL")
         addToSkinJoints(jawJnt)
         # Nurbs surfaces - creating clusters:
-        upperLip = "C_upperLipSfs_NURBS"
-        lowerLip = "C_lowerLipSfs_NURBS"
-        upperCurve = "C_upperLip_CRV"
-        lowerCurve = "C_lowerLip_CRV"
+        upperLip = "C_lipUpperSfs_NURBS"
+        lowerLip = "C_lipLowerSfs_NURBS"
+        upperCurve = "C_lipUpper_CRV"
+        lowerCurve = "C_lipLower_CRV"
         lipSurfaces = [upperLip, lowerLip]
         lipCurves = [upperCurve, lowerCurve]
         upperLipClusters, lowerLipClusters = [], []
         # Grouping:
-        upperLipGrp = mc.group(upperLip, upperCurve, n="C_upperLip_GRP")
-        lowerLipGrp = mc.group(lowerLip, lowerCurve, n="C_lowerLip_GRP")
+        upperLipGrp = mc.group(upperLip, upperCurve, n="C_lipLower_GRP")
+        lowerLipGrp = mc.group(lowerLip, lowerCurve, n="C_lipUpper_GRP")
         mc.parent(upperLipGrp, lowerLipGrp, "rig_GRP")
         for surface, curve in zip(lipSurfaces, lipCurves):
             # Create controls, parent constraints and clusters
@@ -260,11 +265,14 @@ class FaceComponent:
                 lipClusters, name = None, None
                 if surface == upperLip:
                     lipClusters = upperLipClusters
-                    name = "upperLip"
-
+                    name = "lipUpper"
+                    influenceValues = [0.5, 0.3, 0.06, 0.01, 0, 0.01, 0.06, 0.3, 0.5]
+                    orientationLoc = "C_lipUpperOrientation_LOC"
                 else:
                     lipClusters = lowerLipClusters
-                    name = "lowerLip"
+                    name = "lipLower"
+                    orientationLoc = "C_lipLowerOrientation_LOC"
+                    influenceValues = [0.5, 0.7, 0.94, 0.99, 1, 0.99, 0.94, 0.7, 0.5]
 
                 cvs = surface + ".cv[%s][0:3]" % rowId
                 if rowId == 1:
@@ -284,33 +292,38 @@ class FaceComponent:
                     )
 
                 lipClusters.append(clusterHandle)
+                if DEBUG_MODE == False:
+                    mc.setAttr(clusterHandle + ".v", 0)
                 # Build a control per cluster:
                 # keep to 1 ctl per corner:
 
                 if surface == lowerLip and rowId == 1:
-                    control = "C_upperLip00_CTL"
+                    control = "C_lipUpper00_CTL"
                     mc.setAttr(control + ".localPositionY", 0)
                 elif surface == lowerLip and rowId == 9:
-                    control = "C_upperLip08_CTL"
+                    control = "C_lipUpper08_CTL"
                     mc.setAttr(control + ".localPositionY", 0)
                 else:
-                    control, _, grp = buildControl(
+                    control, ofs, grp = buildControl(
                         "C",
                         "%s%s" % (name, str(rowId - 1).zfill(2)),
                         shapeCVs="locator",
                         guide=clusterHandle,
                     )
                     influenceAttr = gen.addAttr(
-                        control, ln="jawInfluence", at="float", min=0, max=1, k=1
+                        ofs, ln="jawInfluence", at="float", min=0, max=1, k=1
                     )
                     mc.setAttr(control + ".localPositionZ", 2)
+                    mc.setAttr(influenceAttr, influenceValues[rowId - 1])
                     if surface == upperLip:
                         mc.setAttr(control + ".localPositionY", 1)
                     else:
                         mc.setAttr(control + ".localPositionY", -1)
                     # Constrain each control to jaw and head joints and provide control over the influence.
+
+                    mc.delete(mc.orientConstraint(orientationLoc, grp, mo=0))
                     parCon = mc.parentConstraint(
-                        "C_head_JNT", "C_jaw00_JNT", control, mo=1
+                        "C_head_JNT", "C_jaw00_JNT", ofs, mo=1
                     )[0]
                     mc.connectAttr(influenceAttr, parCon + ".w1")
                     reverse = mc.createNode(
@@ -325,9 +338,7 @@ class FaceComponent:
                 mc.parent(clusterHandle, control)
             # Create follicles per CV for each surface:
             curveCVs = mc.ls(curve + ".cv[0:]", fl=True)
-            print(curveCVs)
             slList = om2.MSelectionList().add(surface)
-            print(slList)
             mfnSurface = om2.MFnNurbsSurface(slList.getDagPath(0))
 
             for cv in curveCVs:
@@ -348,7 +359,13 @@ class FaceComponent:
                     mc.parent(follicle, upperLipGrp)
                 else:
                     mc.parent(follicle, lowerLipGrp)
-                # addToSkinJoints(bindJoint)
+                addToSkinJoints(bindJoint)
+        # Clean Up:
+        if DEBUG_MODE == False:
+            mc.setAttr("rig_GRP.v", 0)
+            mc.setAttr(jawJnt + ".v", 0)
+            mc.delete("C_lipUpperOrientation_LOC")
+            mc.delete("C_lipLowerOrientation_LOC")
 
 
 class HandComponent:
@@ -1511,13 +1528,20 @@ def main():
     mc.setAttr(skinCluster + ".skinningMethod", 2)
 
     mc.deformerWeights(
-        "body_skinWeights1.xml",
+        "body_skinWeights3.xml",
         path="/Users/Banana/Desktop/projectFolder/HPScripted/scenes",
         deformer=skinCluster,
         im=1,
         method="index",
     )
     mc.skinCluster(skinCluster, e=1, forceNormalizeWeights=True)
+    # Skin gums, teeth, tongue:
+    mc.skinCluster("C_head_JNT", "C_upperTeeth_PLY", tsb=1)
+    mc.skinCluster("C_head_JNT", "C_upperGums_PLY", tsb=1)
+    mc.skinCluster("C_jaw00_JNT", "C_lowerTeeth_PLY", tsb=1)
+    mc.skinCluster("C_jaw00_JNT", "C_lowerGums_PLY", tsb=1)
+    mc.skinCluster("C_jaw00_JNT", "C_tongue_PLY", tsb=1)
+
     # Geometry in hierarchy
     mc.setAttr("C_geometry_GRP.inheritsTransform", 0)
     mc.parent("C_geometry_GRP", harryCtl)
