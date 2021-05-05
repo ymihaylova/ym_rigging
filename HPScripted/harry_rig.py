@@ -233,7 +233,7 @@ class HeadComponent:
 class FaceComponent:
     def __init__(self):
         self.buildLips()
-        # self.buildEyes()
+        self.buildEyebrows()
 
     def buildLips(self):
         # Create a jaw joint ctl, position it in the hierarchy:
@@ -259,6 +259,15 @@ class FaceComponent:
         upperLipGrp = mc.group(upperLip, upperCurve, n="C_lipLower_GRP")
         lowerLipGrp = mc.group(lowerLip, lowerCurve, n="C_lipUpper_GRP")
         mc.parent(upperLipGrp, lowerLipGrp, "rig_GRP")
+        lipsOrientAttr = gen.addAttr(
+            "C_head_CTL",
+            ln="lipsOrientationInfluence",
+            at="float",
+            min=0,
+            max=1,
+            dv=0.5,
+            k=1,
+        )
         for surface, curve in zip(lipSurfaces, lipCurves):
             # Create controls, parent constraints and clusters
             for rowId in range(1, 10):
@@ -299,26 +308,28 @@ class FaceComponent:
 
                 if surface == lowerLip and rowId == 1:
                     control = "C_lipUpper00_CTL"
-                    mc.setAttr(control + ".localPositionY", 0)
                 elif surface == lowerLip and rowId == 9:
                     control = "C_lipUpper08_CTL"
-                    mc.setAttr(control + ".localPositionY", 0)
                 else:
                     control, ofs, grp = buildControl(
                         "C",
                         "%s%s" % (name, str(rowId - 1).zfill(2)),
-                        shapeCVs="locator",
+                        shapeCVs="sphere",
                         guide=clusterHandle,
                     )
+                    mc.scale(0.2, 0.2, 0.2, control + "Shape*.cv[*]")
                     influenceAttr = gen.addAttr(
                         ofs, ln="jawInfluence", at="float", min=0, max=1, k=1
                     )
-                    mc.setAttr(control + ".localPositionZ", 2)
                     mc.setAttr(influenceAttr, influenceValues[rowId - 1])
-                    if surface == upperLip:
-                        mc.setAttr(control + ".localPositionY", 1)
+
+                    if control not in ["C_lipUpper00_CTL", "C_lipUpper08_CTL"]:
+                        if surface == upperLip:
+                            mc.move(0, 0.5, 1, control + "Shape*.cv[*]", ws=1, r=1)
+                        else:
+                            mc.move(0, -0.4, 1, control + "Shape*.cv[*]", ws=1, r=1)
                     else:
-                        mc.setAttr(control + ".localPositionY", -1)
+                        mc.move(0, 0, 1, control + "Shape*.cv[*]", ws=1, r=1)
                     # Constrain each control to jaw and head joints and provide control over the influence.
 
                     mc.delete(mc.orientConstraint(orientationLoc, grp, mo=0))
@@ -359,6 +370,22 @@ class FaceComponent:
                     mc.parent(follicle, upperLipGrp)
                 else:
                     mc.parent(follicle, lowerLipGrp)
+                # Set up and expose an attribute for an orient constraint for each
+                # lip joint in order to reduce some of the rotation caused
+                # when moving the lips:
+                duplicate = mc.duplicate(bindJoint)
+                mc.hide(duplicate)
+                mc.parent(duplicate, "C_head_CTL")
+                orientCon = mc.orientConstraint(duplicate, follicle, bindJoint, mo=0)[0]
+                mc.setAttr(orientCon + ".interpType", 2)
+                mc.connectAttr(lipsOrientAttr, orientCon + ".w1")
+                reverse = mc.createNode(
+                    "reverse",
+                    n="C_%sOrientConReverseInfluence_RV" % (bindJoint[2:-4]),
+                )
+                mc.connectAttr(orientCon + ".w1", reverse + ".inputX")
+                mc.connectAttr(reverse + ".outputX", orientCon + ".w0")
+                # Set up for skinning:
                 addToSkinJoints(bindJoint)
         # Clean Up:
         if DEBUG_MODE == False:
@@ -366,6 +393,84 @@ class FaceComponent:
             mc.setAttr(jawJnt + ".v", 0)
             mc.delete("C_lipUpperOrientation_LOC")
             mc.delete("C_lipLowerOrientation_LOC")
+
+    def buildEyebrows(self):
+        # Setup:
+        browCurve = "C_eyebrows_CRV"
+        brows = "C_eyebrowsProxy_PLY"
+        body = "C_body_PLY"
+        leftBrowCtlsGrp = mc.createNode(
+            "transform", n="L_eyebrowCtls_GRP", p="C_head_CTL"
+        )
+        rightBrowCtlsGrp = mc.createNode(
+            "transform", n="R_eyebrowCtls_GRP", p="C_head_CTL"
+        )
+        # Build clusters and controls for eyebrow curve:
+        cvOrderLeft = ["4:6", "3", "2", "0:1"]
+        midwayCv = "7"
+        cvOrderRight = ["8:10", "11", "12", "13:14"]
+        # Left eyebrow:
+        for counter, cvIds in enumerate(cvOrderLeft):
+            cvs = browCurve + ".cv[%s]" % cvIds
+            _, clusterHandle = mc.cluster(
+                cvs, name="L_eyebrow%s_CLS" % str(counter).zfill(2)
+            )
+            ctl, ofs, grp = buildControl(
+                "L",
+                "eyebrow%s" % str(counter).zfill(2),
+                shapeCVs="sphere",
+                guide=clusterHandle,
+                colour=18,
+            )
+            mc.scale(0.2, 0.2, 0.2, ctl + "Shape*.cv[*]")
+            mc.move(0, 0, 1, ctl + "Shape*.cv[*]", ws=1, r=1)
+            mc.parent(clusterHandle, ctl)
+            mc.parent(grp, "C_head_CTL")
+            mc.hide(clusterHandle)
+        # Right eyebrow:
+        for counter, cvIds in enumerate(cvOrderRight):
+            cvs = browCurve + ".cv[%s]" % cvIds
+            _, clusterHandle = mc.cluster(
+                cvs, name="R_eyebrow%s_CLS" % str(counter).zfill(2)
+            )
+            ctl, ofs, grp = buildControl(
+                "R",
+                "eyebrow%s" % str(counter).zfill(2),
+                shapeCVs="sphere",
+                guide=clusterHandle,
+                colour=20,
+            )
+            mc.scale(0.2, 0.2, 0.2, ctl + "Shape*.cv[*]")
+            mc.move(0, 0, 1, ctl + "Shape*.cv[*]", ws=1, r=1)
+            mc.parent(clusterHandle, ctl)
+            mc.parent(grp, "C_head_CTL")
+            mc.hide(clusterHandle)
+        # Midbrow Ctl:
+        _, clusterHandle = mc.cluster(
+            browCurve + ".cv[%s]" % midwayCv, name="C_eyebrowMid_CLS"
+        )
+        ctl, ofs, grp = buildControl(
+            "C", "eyebrowMid", shapeCVs="sphere", guide=clusterHandle
+        )
+        mc.scale(0.2, 0.2, 0.2, ctl + "Shape*.cv[*]")
+        mc.move(0, 0, 1, ctl + "Shape*.cv[*]", ws=1, r=1)
+        mc.parent(clusterHandle, ctl)
+        mc.parent(grp, "C_head_CTL")
+        mc.hide(clusterHandle)
+
+        # Create wire deformers for C_body_PLY and for the eyebrow proxies:
+        bodyWireDefNode, a = mc.wire(body, w=browCurve, dds=(0, 3.5))
+        print(a)
+        mc.setAttr(bodyWireDefNode + ".rotation", 0.35)
+        browsWireDefNode = mc.wire(brows, w=browCurve, dds=(0, 50))[0]
+        mc.setAttr(browsWireDefNode + ".rotation", 0.5)
+        # Clean up:
+        # for curve in [browCurve, browCurve + "BaseWire", browCurve + "BaseWire1"]:
+        #     mc.parent(curve, "C_head_CTL")
+        #     mc.setAttr(curve + ".tx", 0)
+        #     mc.setAttr(curve + ".ty", 0)
+        #     mc.setAttr(curve + ".tz", 0)
+        # mc.setAttr(browCurve + ".inheritsTransform", 0)
 
 
 class HandComponent:
@@ -501,6 +606,15 @@ def buildControl(
         control = mc.circle(constructionHistory=0)[0]
     elif shapeCVs == "locator":
         control = mc.spaceLocator()[0]
+    elif shapeCVs == "sphere":
+        control = mc.circle(constructionHistory=0)[0]
+        shape2 = mc.circle(constructionHistory=0)[0]
+        shape3 = mc.circle(constructionHistory=0)[0]
+        mc.parent(shape2[:-1] + "Shape2", control, s=1, r=1)
+        mc.parent(shape3[:-1] + "Shape3", control, s=1, r=1)
+        mc.rotate(0, 90, 0, control[:-1] + "Shape1.cv[*]", ws=1)
+        mc.rotate(90, 0, 0, control[:-1] + "Shape2.cv[*]", ws=1)
+        mc.delete(shape2, shape3)
     else:
         if not shapeKnots:
             control = mc.curve(p=shapeCVs, degree=degree)
@@ -1528,7 +1642,7 @@ def main():
     mc.setAttr(skinCluster + ".skinningMethod", 2)
 
     mc.deformerWeights(
-        "body_skinWeights3.xml",
+        "body_skinWeights5.xml",
         path="/Users/Banana/Desktop/projectFolder/HPScripted/scenes",
         deformer=skinCluster,
         im=1,
