@@ -459,18 +459,25 @@ class FaceComponent:
         mc.hide(clusterHandle)
 
         # Create wire deformers for C_body_PLY and for the eyebrow proxies:
-        bodyWireDefNode, a = mc.wire(body, w=browCurve, dds=(0, 3.5))
-        print(a)
+        bodyWireDefNode, _ = mc.wire(body, w=browCurve, dds=(0, 3.5))
         mc.setAttr(bodyWireDefNode + ".rotation", 0.35)
         browsWireDefNode = mc.wire(brows, w=browCurve, dds=(0, 50))[0]
         mc.setAttr(browsWireDefNode + ".rotation", 0.5)
         # Clean up:
         # for curve in [browCurve, browCurve + "BaseWire", browCurve + "BaseWire1"]:
-        #     mc.parent(curve, "C_head_CTL")
-        #     mc.setAttr(curve + ".tx", 0)
-        #     mc.setAttr(curve + ".ty", 0)
-        #     mc.setAttr(curve + ".tz", 0)
-        # mc.setAttr(browCurve + ".inheritsTransform", 0)
+        mc.parent(
+            browCurve, browCurve + "BaseWire", browCurve + "BaseWire1", "C_head_CTL"
+        )
+        # mc.setAttr(curve + ".tx", 0)
+        # mc.setAttr(curve + ".ty", 0)
+        # mc.setAttr(curve + ".tz", 0)
+        mc.setAttr(browCurve + ".inheritsTransform", 0)
+        mc.setAttr(browCurve + ".tx", 0)
+        mc.setAttr(browCurve + ".ty", 0)
+        mc.setAttr(browCurve + ".tz", 0)
+
+        skinClusterBrows = mc.skinCluster("C_head_JNT", brows, tsb=1)[0]
+        mc.reorderDeformers("wire2", skinClusterBrows, brows)
 
 
 class HandComponent:
@@ -1640,6 +1647,8 @@ def main():
     body = "C_body_PLY"
     skinCluster = mc.skinCluster(skinJoints, body, tsb=1)[0]
     mc.setAttr(skinCluster + ".skinningMethod", 2)
+    # Ensuring deformers are in the correct order:
+    mc.reorderDeformers("wire1", skinCluster, body)
 
     mc.deformerWeights(
         "body_skinWeights5.xml",
