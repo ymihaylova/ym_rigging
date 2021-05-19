@@ -236,6 +236,10 @@ class FaceComponent:
         self.buildEyebrows()
 
     def buildLips(self):
+        # Hierarchy:
+        lipsCtlsGrp = mc.createNode("transform", n="C_lipControls_GRP", p="C_head_CTL")
+        lips = mc.createNode("transform", n="C_lips_GRP", p="C_head_CTL")
+        mc.parent(lipsCtlsGrp, lips)
         # Create a jaw joint ctl, position it in the hierarchy:
         jawJnt = "C_jaw00_JNT"
         jawCtl, _, jawGrp = buildControl(
@@ -319,7 +323,7 @@ class FaceComponent:
                     )
                     mc.scale(0.2, 0.2, 0.2, control + "Shape*.cv[*]")
                     influenceAttr = gen.addAttr(
-                        ofs, ln="jawInfluence", at="float", min=0, max=1, k=1
+                        control, ln="jawInfluence", at="float", min=0, max=1, k=1
                     )
                     mc.setAttr(influenceAttr, influenceValues[rowId - 1])
 
@@ -344,7 +348,7 @@ class FaceComponent:
                     )
                     mc.connectAttr(parCon + ".w1", reverse + ".inputX")
                     mc.connectAttr(reverse + ".outputX", parCon + ".w0")
-                    mc.parent(grp, "C_head_CTL")
+                    mc.parent(grp, lipsCtlsGrp)
 
                 mc.parent(clusterHandle, control)
             # Create follicles per CV for each surface:
@@ -352,6 +356,10 @@ class FaceComponent:
             slList = om2.MSelectionList().add(surface)
             mfnSurface = om2.MFnNurbsSurface(slList.getDagPath(0))
 
+            # Duplicate group:
+            duplicatesGrp = mc.createNode(
+                "transform", n="C_%sBindJntDuplicates_GRP" % name, p=lips
+            )
             for cv in curveCVs:
                 position = mc.pointPosition(cv)
                 pt, u, v = mfnSurface.closestPoint(om2.MPoint(position))
@@ -370,12 +378,13 @@ class FaceComponent:
                     mc.parent(follicle, upperLipGrp)
                 else:
                     mc.parent(follicle, lowerLipGrp)
-                # Set up and expose an attribute for an orient constraint for each
-                # lip joint in order to reduce some of the rotation caused
-                # when moving the lips:
-                duplicate = mc.duplicate(bindJoint)
+                # Create a duplicate fpr each bind joint to manage orientation when moving lips:
+                duplicate = mc.duplicate(bindJoint)[0]
+                duplicate = mc.rename(
+                    duplicate, duplicate.replace("_JNT1", "Dupilicate_JNT")
+                )
                 mc.hide(duplicate)
-                mc.parent(duplicate, "C_head_CTL")
+                mc.parent(duplicate, duplicatesGrp)
                 orientCon = mc.orientConstraint(duplicate, follicle, bindJoint, mo=0)[0]
                 mc.setAttr(orientCon + ".interpType", 2)
                 mc.connectAttr(lipsOrientAttr, orientCon + ".w1")
@@ -425,7 +434,7 @@ class FaceComponent:
             mc.scale(0.2, 0.2, 0.2, ctl + "Shape*.cv[*]")
             mc.move(0, 0, 1, ctl + "Shape*.cv[*]", ws=1, r=1)
             mc.parent(clusterHandle, ctl)
-            mc.parent(grp, "C_head_CTL")
+            mc.parent(grp, leftBrowCtlsGrp)
             mc.hide(clusterHandle)
         # Right eyebrow:
         for counter, cvIds in enumerate(cvOrderRight):
@@ -443,7 +452,7 @@ class FaceComponent:
             mc.scale(0.2, 0.2, 0.2, ctl + "Shape*.cv[*]")
             mc.move(0, 0, 1, ctl + "Shape*.cv[*]", ws=1, r=1)
             mc.parent(clusterHandle, ctl)
-            mc.parent(grp, "C_head_CTL")
+            mc.parent(grp, rightBrowCtlsGrp)
             mc.hide(clusterHandle)
         # Midbrow Ctl:
         _, clusterHandle = mc.cluster(
@@ -460,24 +469,19 @@ class FaceComponent:
 
         # Create wire deformers for C_body_PLY and for the eyebrow proxies:
         bodyWireDefNode, _ = mc.wire(body, w=browCurve, dds=(0, 3.5))
-        mc.setAttr(bodyWireDefNode + ".rotation", 0.35)
+        mc.setAttr(bodyWireDefNode + ".rotation", 0.2)
         browsWireDefNode = mc.wire(brows, w=browCurve, dds=(0, 50))[0]
         mc.setAttr(browsWireDefNode + ".rotation", 0.5)
         # Clean up:
-        # for curve in [browCurve, browCurve + "BaseWire", browCurve + "BaseWire1"]:
         mc.parent(
             browCurve, browCurve + "BaseWire", browCurve + "BaseWire1", "C_head_CTL"
         )
-        # mc.setAttr(curve + ".tx", 0)
-        # mc.setAttr(curve + ".ty", 0)
-        # mc.setAttr(curve + ".tz", 0)
         mc.setAttr(browCurve + ".inheritsTransform", 0)
         mc.setAttr(browCurve + ".tx", 0)
         mc.setAttr(browCurve + ".ty", 0)
         mc.setAttr(browCurve + ".tz", 0)
 
-        skinClusterBrows = mc.skinCluster("C_head_JNT", brows, tsb=1)[0]
-        mc.reorderDeformers("wire2", skinClusterBrows, brows)
+        mc.parentConstraint("C_head_CTL", brows, mo=1)
 
 
 class HandComponent:
