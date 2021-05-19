@@ -4,6 +4,8 @@ from ym_rigging.general import ctl_shapes as cs
 from ym_rigging.general import general as gen
 from ym_rigging.general import parameters as prm
 
+reload(cs);reload(gen);reload(prm)
+
 DEBUG_MODE = False
 
 
@@ -396,6 +398,14 @@ class FaceComponent:
                 mc.connectAttr(reverse + ".outputX", orientCon + ".w0")
                 # Set up for skinning:
                 addToSkinJoints(bindJoint)
+        # Upper and Lower Lip Ctls:
+        upperLipCtl, upperLipCtlOfs, upperLipCtlGrp = buildControl(
+            "C", "lipUpper", "C_lipUpper04_CTL", shapeCVs=cs.RECTANGLE_SHAPE_CVS
+        )
+        # mc.rotate(90, 0, 0, upperLipCtl + ".cv[*]", ws=1, r=1)
+        lowerLipCtl, lowerLipCtlOfs, lowerLipCtlGrp = buildControl(
+            "C", "lipLower", "C_lipLower04_CTL", shapeCVs=cs.RECTANGLE_SHAPE_CVS
+        )
         # Clean Up:
         if DEBUG_MODE == False:
             mc.setAttr("rig_GRP.v", 0)
@@ -408,6 +418,7 @@ class FaceComponent:
         browCurve = "C_eyebrows_CRV"
         brows = "C_eyebrowsProxy_PLY"
         body = "C_body_PLY"
+        orientationLoc = "C_eyebrowOrientation_LTR"
         leftBrowCtlsGrp = mc.createNode(
             "transform", n="L_eyebrowCtls_GRP", p="C_head_CTL"
         )
@@ -415,22 +426,23 @@ class FaceComponent:
             "transform", n="R_eyebrowCtls_GRP", p="C_head_CTL"
         )
         # Build clusters and controls for eyebrow curve:
-        cvOrderLeft = ["4:6", "3", "2", "0:1"]
+        cvOrderLeft = ["4:6", "3", "2"]
         midwayCv = "7"
-        cvOrderRight = ["8:10", "11", "12", "13:14"]
+        cvOrderRight = ["8:10", "11", "12"]
         # Left eyebrow:
         for counter, cvIds in enumerate(cvOrderLeft):
             cvs = browCurve + ".cv[%s]" % cvIds
             _, clusterHandle = mc.cluster(
                 cvs, name="L_eyebrow%s_CLS" % str(counter).zfill(2)
             )
-            ctl, ofs, grp = buildControl(
+            ctl, _, grp = buildControl(
                 "L",
                 "eyebrow%s" % str(counter).zfill(2),
                 shapeCVs="sphere",
                 guide=clusterHandle,
                 colour=18,
             )
+            mc.delete(mc.orientConstraint(orientationLoc, grp, mo=0))
             mc.scale(0.2, 0.2, 0.2, ctl + "Shape*.cv[*]")
             mc.move(0, 0, 1, ctl + "Shape*.cv[*]", ws=1, r=1)
             mc.parent(clusterHandle, ctl)
@@ -442,13 +454,14 @@ class FaceComponent:
             _, clusterHandle = mc.cluster(
                 cvs, name="R_eyebrow%s_CLS" % str(counter).zfill(2)
             )
-            ctl, ofs, grp = buildControl(
+            ctl, _, grp = buildControl(
                 "R",
                 "eyebrow%s" % str(counter).zfill(2),
                 shapeCVs="sphere",
                 guide=clusterHandle,
                 colour=20,
             )
+            mc.delete(mc.orientConstraint(orientationLoc, grp, mo=0))
             mc.scale(0.2, 0.2, 0.2, ctl + "Shape*.cv[*]")
             mc.move(0, 0, 1, ctl + "Shape*.cv[*]", ws=1, r=1)
             mc.parent(clusterHandle, ctl)
@@ -458,7 +471,7 @@ class FaceComponent:
         _, clusterHandle = mc.cluster(
             browCurve + ".cv[%s]" % midwayCv, name="C_eyebrowMid_CLS"
         )
-        ctl, ofs, grp = buildControl(
+        ctl, _, grp = buildControl(
             "C", "eyebrowMid", shapeCVs="sphere", guide=clusterHandle
         )
         mc.scale(0.2, 0.2, 0.2, ctl + "Shape*.cv[*]")
@@ -468,8 +481,15 @@ class FaceComponent:
         mc.hide(clusterHandle)
 
         # Create wire deformers for C_body_PLY and for the eyebrow proxies:
-        bodyWireDefNode, _ = mc.wire(body, w=browCurve, dds=(0, 3.5))
+        bodyWireDefNode, _ = mc.wire(body, w=browCurve, dds=(0, 4.01))
         mc.setAttr(bodyWireDefNode + ".rotation", 0.2)
+        mc.deformerWeights(
+            "HP_body_wireWeights.xml",
+            path="/Users/Banana/Desktop/projectFolder/HPScripted/scenes",
+            deformer=bodyWireDefNode,
+            im=1,
+            method="index",
+        )
         browsWireDefNode = mc.wire(brows, w=browCurve, dds=(0, 50))[0]
         mc.setAttr(browsWireDefNode + ".rotation", 0.5)
         # Clean up:
@@ -482,6 +502,10 @@ class FaceComponent:
         mc.setAttr(browCurve + ".tz", 0)
 
         mc.parentConstraint("C_head_CTL", brows, mo=1)
+
+        if not DEBUG_MODE:
+            mc.hide(browCurve)
+            mc.delete(orientationLoc)
 
 
 class HandComponent:
@@ -1655,7 +1679,7 @@ def main():
     mc.reorderDeformers("wire1", skinCluster, body)
 
     mc.deformerWeights(
-        "body_skinWeights5.xml",
+        "body_skinWeights8.xml",
         path="/Users/Banana/Desktop/projectFolder/HPScripted/scenes",
         deformer=skinCluster,
         im=1,
@@ -1672,6 +1696,12 @@ def main():
     # Geometry in hierarchy
     mc.setAttr("C_geometry_GRP.inheritsTransform", 0)
     mc.parent("C_geometry_GRP", harryCtl)
+    # Make geometry unselectble:
+    referenceGeoAttr = gen.addAttr(
+        harryCtl, ln="referenceGeo", at="long", min=0, max=1, dv=1, k=1
+    )
+    mc.connectAttr(referenceGeoAttr, "C_geometry_GRP.overrideEnabled")
+    mc.setAttr("C_geometry_GRP.overrideDisplayType", 2)
     # Spine curve and root in hierarchy
     mc.parent("C_root_GRP", harryCtl)
     mc.parent("C_spine_CRV", harryCtl)
