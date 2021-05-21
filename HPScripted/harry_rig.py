@@ -276,21 +276,75 @@ class FaceComponent:
             dv=0.3,
             k=1,
         )
+        # Lip corner compound controls:
+        # Right corner
+        _, dummyCluster = mc.cluster(upperLip + ".cv[0][0:3]")
+        leftLipCtl, leftLipOfs, leftLipGrp = buildControl(
+            "L",
+            "lipCorner",
+            guide=dummyCluster,
+            shapeCVs=cs.RECTANGLE_SHAPE_CVS,
+            colour=18,
+        )
+        mc.delete(dummyCluster)
+        # Left corner:
+        _, dummyCluster = mc.cluster(upperLip + ".cv[14][0:3]")
+        rightLipCtl, rightLipOfs, rightLipGrp = buildControl(
+            "R",
+            "lipCorner",
+            guide=dummyCluster,
+            shapeCVs=cs.RECTANGLE_SHAPE_CVS,
+            colour=18,
+        )
+        mc.delete(dummyCluster)
+        for ctl in [rightLipCtl, leftLipCtl]:
+            shape = ctl + ".cv[*]"
+            mc.rotate(90, 0, 90, shape, ws=1, r=1)
+            mc.move(0, 0, 2, shape, ws=1, r=1)
+        for grp in [rightLipGrp, leftLipGrp]:
+            mc.delete(
+                mc.orientConstraint(
+                    "C_lipLowerOrientation_LOC", "C_lipUpperOrientation_LOC", grp, mo=0
+                )
+            )
+            mc.parent(grp, lipsCtlsGrp)
+        for ofs in [leftLipOfs, rightLipOfs]:
+            mc.parentConstraint("C_head_CTL", jawJnt, ofs, mo=1)
+
+        # Lips bind controls set up:
         for surface, curve in zip(lipSurfaces, lipCurves):
             # Create controls, parent constraints and clusters
-            for rowId in range(1, 10):
-                lipClusters, name = None, None
-                if surface == upperLip:
-                    lipClusters = upperLipClusters
-                    name = "lipUpper"
-                    influenceValues = [0.5, 0.3, 0.06, 0.01, 0, 0.01, 0.06, 0.3, 0.5]
-                    orientationLoc = "C_lipUpperOrientation_LOC"
-                else:
-                    lipClusters = lowerLipClusters
-                    name = "lipLower"
-                    orientationLoc = "C_lipLowerOrientation_LOC"
-                    influenceValues = [0.5, 0.7, 0.94, 0.99, 1, 0.99, 0.94, 0.7, 0.5]
+            if surface == upperLip:
+                lipClusters = upperLipClusters
+                name = "lipUpper"
+                influenceValues = [0.5, 0.3, 0.06, 0.01, 0, 0.01, 0.06, 0.3, 0.5]
+                orientationLoc = "C_lipUpperOrientation_LOC"
+            else:
+                lipClusters = lowerLipClusters
+                name = "lipLower"
+                orientationLoc = "C_lipLowerOrientation_LOC"
+                influenceValues = [0.5, 0.7, 0.94, 0.99, 1, 0.99, 0.94, 0.7, 0.5]
+            # Create large lip control:
+            _, dummyCluster = mc.cluster(surface + ".cv[5][0:3]")
+            largeLipCtl, _, largeLipGrp = buildControl(
+                "C",
+                name + "Compound",
+                guide=dummyCluster,
+                shapeCVs=cs.RECTANGLE_SHAPE_CVS,
+                colour=20,
+            )
+            mc.delete(mc.orientConstraint(orientationLoc, largeLipGrp, mo=0))
+            mc.rotate(90, 0, 0, largeLipCtl + ".cv[*]", ws=0, r=1)
+            if surface == lowerLip:
+                mc.parent(largeLipGrp, jawCtl)
+                mc.move(0, -1.5, 2, largeLipCtl + ".cv[*]", ws=0, r=1)
+            else:
+                mc.parent(largeLipGrp, lipsCtlsGrp)
+                mc.move(0, 0.5, 2, largeLipCtl + ".cv[*]", ws=0, r=1)
+            # mc.scale(2, 1, 1, largeLipCtl + ".cv[*]")
+            mc.delete(dummyCluster)
 
+            for rowId in range(1, 10):
                 cvs = surface + ".cv[%s][0:3]" % rowId
                 if rowId == 1:
                     cvs = surface + ".cv[0:1][0:3]"
@@ -341,18 +395,45 @@ class FaceComponent:
                     # Constrain each control to jaw and head joints and provide control over the influence.
 
                     mc.delete(mc.orientConstraint(orientationLoc, grp, mo=0))
-                    parCon = mc.parentConstraint(
-                        "C_head_JNT", "C_jaw00_JNT", ofs, mo=1
-                    )[0]
-                    mc.connectAttr(influenceAttr, parCon + ".w1")
-                    reverse = mc.createNode(
-                        "reverse",
-                        n="C_%s%sParConReverseInfluence_RV"
-                        % (name, str(rowId - 1).zfill(2)),
-                    )
-                    mc.connectAttr(parCon + ".w1", reverse + ".inputX")
-                    mc.connectAttr(reverse + ".outputX", parCon + ".w0")
-                    mc.parent(grp, lipsCtlsGrp)
+                    if control in ["C_lipUpper00_CTL", "C_lipUpper08_CTL"]:
+                        if control == "C_lipUpper00_CTL":
+                            mc.parent(grp, leftLipCtl)
+                        else:
+                            mc.parent(grp, rightLipCtl)
+
+                    else:
+                        if control in ["C_%s07_CTL" % name, "C_%s01_CTL" % name]:
+                            if control == "C_%s01_CTL" % name:
+                                mc.parent(grp, leftLipCtl)
+                                parCon = mc.parentConstraint(
+                                    largeLipCtl, leftLipCtl, ofs, mo=1
+                                )[0]
+                            else:
+                                mc.parent(grp, rightLipCtl)
+                                parCon = mc.parentConstraint(
+                                    largeLipCtl, rightLipCtl, ofs, mo=1
+                                )[0]
+
+                        else:
+                            if surface == upperLip:
+                                parCon = mc.parentConstraint(
+                                    largeLipCtl, "C_jaw00_JNT", ofs, mo=1
+                                )[0]
+                            else:
+                                parCon = mc.parentConstraint(
+                                    "C_head_CTL", largeLipCtl, ofs, mo=1
+                                )[0]
+
+                        mc.connectAttr(influenceAttr, parCon + ".w1")
+                        reverse = mc.createNode(
+                            "reverse",
+                            n="C_%s%sParConReverseInfluence_RV"
+                            % (name, str(rowId - 1).zfill(2)),
+                        )
+                        mc.connectAttr(parCon + ".w1", reverse + ".inputX")
+                        mc.connectAttr(reverse + ".outputX", parCon + ".w0")
+                    if rowId not in [1, 2, 8, 9]:
+                        mc.parent(grp, largeLipCtl)
 
                 mc.parent(clusterHandle, control)
             # Create follicles per CV for each surface:
@@ -400,14 +481,7 @@ class FaceComponent:
                 mc.connectAttr(reverse + ".outputX", orientCon + ".w0")
                 # Set up for skinning:
                 addToSkinJoints(bindJoint)
-        # Upper and Lower Lip Ctls:
-        upperLipCtl, upperLipCtlOfs, upperLipCtlGrp = buildControl(
-            "C", "lipUpper", "C_lipUpper04_CTL", shapeCVs=cs.RECTANGLE_SHAPE_CVS
-        )
-        # mc.rotate(90, 0, 0, upperLipCtl + ".cv[*]", ws=1, r=1)
-        lowerLipCtl, lowerLipCtlOfs, lowerLipCtlGrp = buildControl(
-            "C", "lipLower", "C_lipLower04_CTL", shapeCVs=cs.RECTANGLE_SHAPE_CVS
-        )
+
         # Clean Up:
         if DEBUG_MODE == False:
             mc.setAttr("rig_GRP.v", 0)
