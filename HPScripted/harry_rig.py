@@ -4,7 +4,9 @@ from ym_rigging.general import ctl_shapes as cs
 from ym_rigging.general import general as gen
 from ym_rigging.general import parameters as prm
 
-reload(cs);reload(gen);reload(prm)
+reload(cs)
+reload(gen)
+reload(prm)
 
 DEBUG_MODE = False
 
@@ -271,7 +273,7 @@ class FaceComponent:
             at="float",
             min=0,
             max=1,
-            dv=0.5,
+            dv=0.3,
             k=1,
         )
         for surface, curve in zip(lipSurfaces, lipCurves):
@@ -426,57 +428,102 @@ class FaceComponent:
             "transform", n="R_eyebrowCtls_GRP", p="C_head_CTL"
         )
         # Build clusters and controls for eyebrow curve:
-        cvOrderLeft = ["4:6", "3", "2"]
+        cvOrderLeft = ["4:6", "3", "2", "0:1"]
         midwayCv = "7"
-        cvOrderRight = ["8:10", "11", "12"]
+        cvOrderRight = ["8:10", "11", "12", "13:14"]
         # Left eyebrow:
+        # Left eyebrow primary layer control set up:
+        _, clusterHandle = mc.cluster(
+            browCurve + ".cv[3]", name="L_eyebrowComponent_CLS"
+        )
+        leftEyebrowCtl, _, leftEyebrowGrp = buildControl(
+            "L",
+            "eyebrowComponent",
+            guide=clusterHandle,
+            shapeCVs=cs.RECTANGLE_SHAPE_CVS,
+            colour=18,
+        )
+        mc.delete(mc.orientConstraint(orientationLoc, leftEyebrowGrp, mo=0))
+        mc.parent(leftEyebrowGrp, leftBrowCtlsGrp)
+        mc.rotate(90, 0, 0, leftEyebrowCtl + ".cv[*]", ws=0, r=1)
+        mc.move(-0.5, -0.5, 3, leftEyebrowCtl + ".cv[*]", ws=0, r=1)
+        mc.scale(2, 1, 1, leftEyebrowCtl + ".cv[*]")
+        mc.delete(clusterHandle)
+        # Left eyebrow secondary layer controls:
         for counter, cvIds in enumerate(cvOrderLeft):
             cvs = browCurve + ".cv[%s]" % cvIds
             _, clusterHandle = mc.cluster(
                 cvs, name="L_eyebrow%s_CLS" % str(counter).zfill(2)
             )
-            ctl, _, grp = buildControl(
-                "L",
-                "eyebrow%s" % str(counter).zfill(2),
-                shapeCVs="sphere",
-                guide=clusterHandle,
-                colour=18,
-            )
-            mc.delete(mc.orientConstraint(orientationLoc, grp, mo=0))
-            mc.scale(0.2, 0.2, 0.2, ctl + "Shape*.cv[*]")
-            mc.move(0, 0, 1, ctl + "Shape*.cv[*]", ws=1, r=1)
-            mc.parent(clusterHandle, ctl)
-            mc.parent(grp, leftBrowCtlsGrp)
-            mc.hide(clusterHandle)
+            if cvIds != "0:1":
+                ctl, _, grp = buildControl(
+                    "L",
+                    "eyebrow%s" % str(counter).zfill(2),
+                    shapeCVs="sphere",
+                    guide=clusterHandle,
+                    colour=18,
+                )
+                mc.delete(mc.orientConstraint(orientationLoc, grp, mo=0))
+                mc.scale(0.2, 0.2, 0.2, ctl + "Shape*.cv[*]")
+                mc.move(0, 0, 1, ctl + "Shape*.cv[*]", ws=1, r=1)
+                mc.parent(clusterHandle, ctl)
+                mc.parent(grp, leftEyebrowCtl)
+                mc.hide(clusterHandle)
+            else:
+                mc.parent(clusterHandle, leftBrowCtlsGrp)
+                mc.hide(clusterHandle)
         # Right eyebrow:
+        # Right eyebrow primary layer control set up:
+        _, clusterHandle = mc.cluster(
+            browCurve + ".cv[11]", name="R_eyebrowComponent_CLS"
+        )
+        rightEyebrowCtl, _, rightEyebrowGrp = buildControl(
+            "R",
+            "eyebrowComponent",
+            guide=clusterHandle,
+            shapeCVs=cs.RECTANGLE_SHAPE_CVS,
+            colour=20,
+        )
+        mc.delete(mc.orientConstraint(orientationLoc, rightEyebrowGrp, mo=0))
+        mc.parent(rightEyebrowGrp, rightBrowCtlsGrp)
+        mc.rotate(90, 0, 0, rightEyebrowCtl + ".cv[*]", ws=0, r=1)
+        mc.move(0.5, -0.5, 3, rightEyebrowCtl + ".cv[*]", ws=0, r=1)
+        mc.scale(2, 1, 1, rightEyebrowCtl + ".cv[*]")
+        mc.delete(clusterHandle)
         for counter, cvIds in enumerate(cvOrderRight):
             cvs = browCurve + ".cv[%s]" % cvIds
             _, clusterHandle = mc.cluster(
                 cvs, name="R_eyebrow%s_CLS" % str(counter).zfill(2)
             )
-            ctl, _, grp = buildControl(
-                "R",
-                "eyebrow%s" % str(counter).zfill(2),
-                shapeCVs="sphere",
-                guide=clusterHandle,
-                colour=20,
-            )
-            mc.delete(mc.orientConstraint(orientationLoc, grp, mo=0))
-            mc.scale(0.2, 0.2, 0.2, ctl + "Shape*.cv[*]")
-            mc.move(0, 0, 1, ctl + "Shape*.cv[*]", ws=1, r=1)
-            mc.parent(clusterHandle, ctl)
-            mc.parent(grp, rightBrowCtlsGrp)
-            mc.hide(clusterHandle)
+            if cvIds != "13:14":
+                ctl, _, grp = buildControl(
+                    "R",
+                    "eyebrow%s" % str(counter).zfill(2),
+                    shapeCVs="sphere",
+                    guide=clusterHandle,
+                    colour=20,
+                )
+                mc.delete(mc.orientConstraint(orientationLoc, grp, mo=0))
+                mc.scale(0.2, 0.2, 0.2, ctl + "Shape*.cv[*]")
+                mc.move(0, 0, 1, ctl + "Shape*.cv[*]", ws=1, r=1)
+                mc.parent(clusterHandle, ctl)
+                mc.parent(grp, rightEyebrowCtl)
+                mc.hide(clusterHandle)
+            else:
+                mc.parent(clusterHandle, rightBrowCtlsGrp)
+                mc.hide(clusterHandle)
+
         # Midbrow Ctl:
         _, clusterHandle = mc.cluster(
             browCurve + ".cv[%s]" % midwayCv, name="C_eyebrowMid_CLS"
         )
-        ctl, _, grp = buildControl(
+        ctl, ofs, grp = buildControl(
             "C", "eyebrowMid", shapeCVs="sphere", guide=clusterHandle
         )
         mc.scale(0.2, 0.2, 0.2, ctl + "Shape*.cv[*]")
         mc.move(0, 0, 1, ctl + "Shape*.cv[*]", ws=1, r=1)
         mc.parent(clusterHandle, ctl)
+        mc.pointConstraint("L_eyebrow00_CTL", "R_eyebrow00_CTL", ofs, mo=1)
         mc.parent(grp, "C_head_CTL")
         mc.hide(clusterHandle)
 
