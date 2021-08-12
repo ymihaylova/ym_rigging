@@ -227,8 +227,8 @@ class HeadComponent:
         orientToParent("C_chest_CTL", "C_head_CTL", "C_head_GRP")
 
         if not DEBUG_MODE:
-            lockAndHide(headCtl, ".sxyz")
-            lockAndHide(neckBaseCtl, ".sxyz")
+            lockAndHide(headCtl, attrList=[".sxyz"])
+            lockAndHide(neckBaseCtl, attrList=[".sxyz"])
             mc.setAttr(headJnt + ".v", 0)
             mc.setAttr(jointChain[0] + ".v", 0)
             mc.setAttr(jointChainTwist[0] + ".v", 0)
@@ -640,13 +640,20 @@ class FaceComponent:
                 side,
                 "eyeSystem",
                 "%s_eye_JNT" % side,
-                shapeCVs="sphere",
+                shapeCVs=cs.SQUARE_SHAPE_CVS,
                 colour=18 if side == "L" else 20,
             )
-            mc.move(0, 0, 3, eyeSystemGrp, ws=1, r=1)
-            mc.move(0, 0, 1, eyeSystemCtl + "Shape*.cv[*]", ws=1, r=1)
+            mc.move(0, 0, 3, eyeSystemGrp, ws=1, r=1)  # Position at the iris
+            mc.rotate(-90, 0, 0, eyeSystemCtl + "Shape*.cv[*]", ws=1, r=1)
+            if side == "L":
+                mc.move(2, 0, -1, eyeSystemCtl + "Shape*.cv[*]", ws=1, r=1)
+            else:
+                mc.move(-2, 0, -1, eyeSystemCtl + "Shape*.cv[*]", ws=1, r=1)
+
+            mc.scale(2, 2, 2, eyeSystemCtl + "Shape*.cv[*]")
             mc.parent(eyeSystemGrp, "C_head_CTL")
             mc.parent(eyeJnt, eyeSystemCtl)
+            # Eyeballs:
             # Rotation ctl:
             rotationCtl, rotationOfs, rotationGrp = buildControl(
                 side,
@@ -655,21 +662,32 @@ class FaceComponent:
                 shapeCVs="sphere",
                 colour=18 if side == "L" else 20,
             )
-            mc.move(0, 0, 4, rotationCtl + "Shape*.cv[*]", ws=1, r=1)
+            mc.rotate(0, 90, 0, rotationCtl + "Shape*.cv[*]", ws=1, r=1)
+            mc.move(0, 0, 1, rotationCtl + "Shape*.cv[*]", ws=1, r=1)
             mc.scale(2, 2, 2, rotationCtl + "Shape*.cv[*]", ws=1, r=1)
             mc.parentConstraint(rotationCtl, eyeJnt)
-            mc.scaleConstraint(rotationCtl, eyeJnt)
-            lockAndHide(rotationCtl, attrList=".txyz")
-            lockAndHide(rotationCtl, attrList=".sxyz")
-            # Aim ctl:
+            mc.parent(rotationGrp, eyeSystemCtl)
+            lockAndHide(rotationCtl, attrList=[".txyz", ".sxyz"])
+            # Aim Eye control - one created for each side.
+            # When building the left side a parent control is built used to move
+            #  both aim controls simultaneously:
+            if side == "L":
+                aimMaskCtl, _, aimMaskGrp = buildControl(
+                    side, "eyesBothAim", "L_eye_JNT", shapeCVs=cs.RECTANGLE_SHAPE_CVS,
+                )
+                mc.move(0, 20, aimMaskGrp, xz=1, ws=1)
+                mc.rotate(90, aimMaskCtl + "Shape*.cv[*]", ws=1, r=1)
+                mc.scale(4, 3, 3, aimMaskCtl + "Shape*.cv[*]", ws=1, r=1)
+                mc.parent(aimMaskGrp, eyeSystemCtl)
+            # Create an aim control for each eye, parent it under the aim controls
+            # mask and create an aim constraint between the eye control and the
+            # rotation control's offset transform.
             aimCtl, _, aimGrp = buildControl(
-                side,
-                "eyeAim",
-                "%s_eye_JNT" % side,
-                shapeCVs=cs.DIAMOND_SHAPE_CVS,
-                colour=18 if side == "L" else 20,
+                side, "eyeAim", "%s_eye_JNT" % side, colour=18 if side == "L" else 20,
             )
-            mc.move(0, 0, 15, aimGrp, ws=1, r=1)
+            mc.move(20, aimGrp, z=1, ws=1)
+            mc.scale(2, 2, 2, aimCtl + "Shape*.cv[*]")
+            mc.parent(aimGrp, aimMaskCtl)
             mc.aimConstraint(
                 aimCtl,
                 rotationOfs,
@@ -679,11 +697,13 @@ class FaceComponent:
                 wu=[0, 1, 0],
                 wuo=aimCtl,
             )
-            mc.parent(aimGrp, eyeSystemCtl)
-            mc.parent(rotationGrp, eyeSystemCtl)
+            lockAndHide(aimCtl, attrList=[".rxyz", ".sxyz", ".v"])
+            lockAndHide(aimMaskCtl, attrList=[".rxyz", ".sxyz", ".v"])
+
             # Eyelids:
             # Set correct orientation of the base eyelid joint using the vector going from 1st and Last CV on the lid for X
             # and the mid pont between the two cvs at 0.5 position of the upper and lower lid curves
+            # Vectors constructed using points on the curves exctracted from the inner edge of the eyelid:
             xVector = gen.getVector(lowerLidCRV + ".cv[0]", lowerLidCRV + ".cv[-1]")
             innerCVUpper = mc.pointOnCurve(upperLidCRV, pr=0.25, p=True, top=True)
             midCVUpper = mc.pointOnCurve(upperLidCRV, pr=0.5, p=True, top=True)
@@ -691,18 +711,25 @@ class FaceComponent:
             innerCVLower = mc.pointOnCurve(lowerLidCRV, pr=0.25, p=True, top=True)
             midCVLower = mc.pointOnCurve(lowerLidCRV, pr=0.5, p=True, top=True)
             outerCVLower = mc.pointOnCurve(lowerLidCRV, pr=0.75, p=True, top=True)
-            midwayPoint = [
-                (midCVUpper[0] + midCVLower[0]) / 2,
-                (midCVUpper[1] + midCVLower[1]) / 2,
-                (midCVUpper[2] + midCVLower[2]) / 2,
-            ]
+
+            upperLidGuideCVs = [innerCVUpper, midCVUpper, outerCVUpper]
+            lowerLidGuideCVs = [innerCVLower, midCVLower, outerCVLower]
+            # Calculate the txyz of the point halfway between the mid CVs of the upper and lower curve
+            midwayPoint = []
+            for upperCvT, lowerCvT in zip(midCVUpper, midCVLower):
+                midwayPoint.append((upperCvT + lowerCvT) / 2)
+            # Create and position an empty transform at the midway point to be used as an aim guide for the lid joints when shut.
+
             guideTransform = mc.createNode(
                 "transform", name="%s_eyeAimGuide_TRN" % side
             )
             mc.move(midwayPoint[0], midwayPoint[1], midwayPoint[2], guideTransform)
+
             # Creating a base joint to serve as template for all eyelid Joints
             baseGuideJoint = mc.createNode("joint", name="%s_lidBase_JNT" % side)
             mc.delete(mc.parentConstraint(eyeJnt, baseGuideJoint, mo=0))
+            # Eyelid joints will have tX going from right to left along xVector
+            # as calculated above, and tZ aimed at the eyeAimGuide transform.
             mc.delete(
                 mc.aimConstraint(
                     guideTransform,
@@ -713,164 +740,16 @@ class FaceComponent:
                     wu=xVector,
                 )
             )
-            # mc.delete(guideTransform)
+            # Freeze the base joint's rotation and scale and parent under the eyeSystem control.
             mc.makeIdentity(baseGuideJoint, a=True)
-            mc.parent(baseGuideJoint, eyeJnt)
-            # Create three base and three bind lid joints for upper and lower respectively
-            upperLidJoints, upperLidBindJoints, lowerLidJoints, lowerLidBindJoints = (
-                [],
-                [],
-                [],
-                [],
-            )
-            upperCVs = [innerCVUpper, midCVUpper, outerCVUpper]
-            lowerCVs = [innerCVLower, midCVLower, outerCVLower]
-            # Create groups for lid controls and position them in the hierarchy:
-            upperLidGroup = mc.createNode(
-                "transform", name="%s_lidUpperSetup_GRP" % side
-            )
-            mc.parent(upperLidGroup, eyeSystemCtl, r=1)
-            lowerLidGroup = mc.createNode(
-                "transform", name="%s_lidLowerSetup_GRP" % side
-            )
-            mc.parent(lowerLidGroup, eyeSystemCtl, r=1)
-            innerLidCornerGroup = mc.createNode(
-                "transform", name="%s_lidInnerCornerSetup_GRP" % side
-            )
-            mc.parent(innerLidCornerGroup, eyeSystemCtl, r=1)
-            outerLidCornerGroup = mc.createNode(
-                "transform", name="%s_lidInnerCornerSetup_GRP" % side
-            )
-            mc.parent(outerLidCornerGroup, eyeSystemCtl, r=1)
-            # Inner and Outer corner joints:
-            cornerJoints = []
-            innerLidCornerJnt = mc.duplicate(baseGuideJoint)[0]
-            innerLidCornerJnt = mc.rename(
-                innerLidCornerJnt,
-                innerLidCornerJnt.replace("lidBase_JNT1", "lidInnerCorner_JNT"),
-            )
-
-            innerLidCornerBindJnt = mc.createNode(
-                "joint", name="%s_lidInnerCornerBind_JNT" % side
-            )
-            mc.parent(innerLidCornerBindJnt, innerLidCornerJnt, r=1)
-            curveLocation = mc.pointOnCurve(upperLidCRV, pr=0, p=True, top=True)
-            cornerJoints.append(innerLidCornerBindJnt)
-            mc.move(
-                curveLocation[0],
-                curveLocation[1],
-                curveLocation[2],
-                innerLidCornerBindJnt,
-                ws=1,
-            )
-            outerLidCornerJnt = mc.duplicate(baseGuideJoint)[0]
-            outerLidCornerJnt = mc.rename(
-                outerLidCornerJnt,
-                outerLidCornerJnt.replace("lidBase_JNT1", "lidOuterCorner_JNT"),
-            )
-
-            outerLidCornerBindJnt = mc.createNode(
-                "joint", name="%s_lidOuterCornerBind_JNT" % side
-            )
-            mc.parent(outerLidCornerBindJnt, outerLidCornerJnt, r=1)
-            curveLocation = mc.pointOnCurve(upperLidCRV, pr=1, p=True, top=True)
-            mc.move(
-                curveLocation[0],
-                curveLocation[1],
-                curveLocation[2],
-                outerLidCornerBindJnt,
-                ws=1,
-            )
-            cornerJoints.append(outerLidCornerBindJnt)
-            for joint in cornerJoints:
-                ctl, ofs, grp = buildControl(
-                    side,
-                    "%s" % joint[2:-8],
-                    guide=joint,
-                    shapeCVs=cs.TRIANGLE_SHAPE_CVS,
-                )
-                mc.rotate(90, 0, 0, ctl + ".cv[*]", ws=1)
-                mc.scale(0.5, 0.5, 0.5, ctl + ".cv[*]")
-                mc.move(0, 0, 1, ctl + ".cv[*]", r=1)
-                mc.parent(grp, eyeSystemCtl)
-            # Get radius of eye joint to use for setting .tz of the bind joint:
-            tzOfEyeBindJoint = (mc.getAttr(eyeJnt + ".radius")) * 0.5
-            print(tzOfEyeBindJoint)
-            for i in range(3):
-                # Upper lid joints and controls
-                upperDuplicate = mc.duplicate(baseGuideJoint)[0]
-                upperDuplicate = mc.rename(
-                    upperDuplicate,
-                    upperDuplicate.replace(
-                        "lidBase_JNT1", "lidUpper%s_JNT" % str(i).zfill(2)
-                    ),
-                )
-                upperLidJoints.append(upperDuplicate)
-                upperLidBindJnt = mc.createNode(
-                    "joint", name="%s_lidUpperBind%s_JNT" % (side, str(i).zfill(2))
-                )
-                mc.parent(upperLidBindJnt, upperDuplicate, r=1)
-                mc.setAttr(upperLidBindJnt + ".tx", upperCVs[i][0])
-                mc.setAttr(upperLidBindJnt + ".tz", tzOfEyeBindJoint)
-                mc.move(
-                    upperCVs[i][0],
-                    midwayPoint[1],
-                    upperCVs[i][2],
-                    upperLidBindJnt,
-                    ws=1,
-                )
-                print(upperCVs[i][0])
-                mc.setAttr(upperLidBindJnt + ".tz", tzOfEyeBindJoint)
-                upperLidBindJoints.append(upperLidBindJnt)
-                addToSkinJoints(upperLidBindJnt)
-
-                # Set to blink line
-                mc.setAttr(upperLidBindJnt + ".ty", 0)
-                mc.parent(upperDuplicate, upperLidGroup)
-                # Conrol
-                # lidUpperControl, lidUpperOfs, lidUpperGrp = buildControl(side, "lidUpper%s" % str(i).zfill(2), guide=upperDuplicate, shapeCVs=cs.TRIANGLE_SHAPE_CVS, colour=18 if side == "L" else 20)
-                # mc.parent(lidUpperGrp, upperLidCtlsGroup)
-                # mc.rotate(90, 0, 0, lidUpperControl + ".cv[*]")
-                # mc.scale(0.5, 0.5, 0.5,  lidUpperControl + ".cv[*]")
-                # mc.move(mc.getAttr(upperLidBindJnt +".tx"), mc.getAttr(upperLidBindJnt +".ty"), mc.getAttr(upperLidBindJnt +".tz") + 1,  lidUpperControl + ".cv[*]", r=1)
-                # Lower lid joints and controls
-                lowerDuplicate = mc.duplicate(baseGuideJoint)[0]
-                lowerDuplicate = mc.rename(
-                    lowerDuplicate,
-                    lowerDuplicate.replace(
-                        "lidBase_JNT1", "lidLower%s_JNT" % str(i).zfill(2)
-                    ),
-                )
-                lowerLidJoints.append(lowerDuplicate)
-                lowerLidBindJnt = mc.createNode(
-                    "joint", name="%s_lidLowerBind%s_JNT" % (side, str(i).zfill(2))
-                )
-                mc.parent(lowerLidBindJnt, lowerDuplicate, r=1)
-                mc.move(
-                    lowerCVs[i][0],
-                    midwayPoint[1],
-                    lowerCVs[i][2],
-                    lowerLidBindJnt,
-                    ws=1,
-                )
-                print(lowerCVs[i][0])
-                mc.setAttr(lowerLidBindJnt + ".tz", tzOfEyeBindJoint)
-                mc.setAttr(lowerLidBindJnt + ".ty", 0)
-                # Set to blink line
-                lowerLidBindJoints.append(lowerLidBindJnt)
-                addToSkinJoints(lowerLidBindJnt)
-                mc.parent(lowerDuplicate, lowerLidGroup)
-                # Control:
-                # lidLowerControl, lidLowerOfs, lidLowerGrp = buildControl(side, "lidLower%s" % str(i).zfill(2), guide=lowerDuplicate, shapeCVs=cs.TRIANGLE_SHAPE_CVS, colour=18 if side == "L" else 20)
-                # mc.parent(lidLowerGrp, lowerLidCtlsGroup)
-                # mc.rotate(90, 0, 180, lidLowerControl + ".cv[*]")
-                # mc.scale(0.5, 0.5, 0.5,  lidLowerControl + ".cv[*]")
-                # mc.move(mc.getAttr(lowerLidBindJnt +".tx"), mc.getAttr(lowerLidBindJnt +".ty"), mc.getAttr(lowerLidBindJnt +".tz") + 1,  lidLowerControl + ".cv[*]", r=1)
+            mc.parent(baseGuideJoint, eyeSystemCtl)
             # Get the angle between blink line and open eye:
             blinkLineVector = gen.getVector(baseGuideJoint, guideTransform)
             guideTransformOpenEye = mc.createNode(
                 "transform", name="%s_eyeOpenAimGuide_TRN" % side
             )
+            # The open eye transform is slightly higher in Y than the lid curve in the topology
+            # to allow for a complete seal of the lids when skinning
             mc.move(
                 midCVUpper[0],
                 midCVUpper[1] + 0.05,
@@ -881,343 +760,712 @@ class FaceComponent:
             # Angle between closed and open lid in radians:
             openLidAngle = om2.MVector.angle(blinkLineVector, openLidVector)
             openLidAngle = float(mc.convertUnit(openLidAngle, f="radian", t="degree"))
-            # Controls for upper and lower lids:
-            lidUpperControl, lidUpperOfs, lidUpperGrp = buildControl(
-                side,
-                "lidUpper",
-                guide=guideTransformOpenEye,
-                shapeCVs=cs.TRIANGLE_SHAPE_CVS,
-                colour=18 if side == "L" else 20,
-            )
-            mc.parent(lidUpperGrp, upperLidGroup)
-            mc.rotate(90, 0, 0, lidUpperControl + ".cv[*]")
-            mc.scale(0.5, 0.5, 0.5, lidUpperControl + ".cv[*]")
-            mc.move(0, 0, 1, lidUpperGrp, r=1)
-            mc.delete(mc.orientConstraint(upperLidBindJoints[1], lidUpperGrp, mo=0))
-            # Move the guide transform:
-            mc.move(midCVLower[0], midCVLower[1], midCVLower[2], guideTransformOpenEye)
-            # Lower lid control:
-            lidLowerControl, lidLowerOfs, lidLowerGrp = buildControl(
-                side,
-                "lidLower",
-                guide=guideTransformOpenEye,
-                shapeCVs=cs.TRIANGLE_SHAPE_CVS,
-                colour=18 if side == "L" else 20,
-            )
-            mc.parent(lidLowerGrp, lowerLidGroup)
-            mc.rotate(90, 0, 180, lidLowerControl + ".cv[*]")
-            mc.scale(0.5, 0.5, 0.5, lidLowerControl + ".cv[*]")
-            mc.move(0, 0, 1, lidLowerControl + ".cv[*]", r=1)
-            mc.delete(mc.orientConstraint(lowerLidBindJoints[1], lidLowerGrp, mo=0))
-            # Create a blink attr:
-            blinkAttr = gen.addAttr(
-                lidUpperControl, ln="blink", at="float", min=0, max=10, k=1
-            )
-            blinkRatioNode = mc.createNode(
-                "multDoubleLinear", n="%s_blinkAttrRatio_MDL" % side
-            )
-            mc.connectAttr(blinkAttr, blinkRatioNode + ".input1")
-            mc.setAttr(blinkRatioNode + ".input2", 0.10)
-            # Eye set up connection:
-            # Open/close
-            # Upper Lid
-            translateYAnimBlendUpper = mc.createNode(
-                "animBlendNodeAdditiveDA",
-                n="%s_lidUpperTranslateYtoRotateJoint_ADA" % side,
-            )
-            mc.connectAttr(
-                lidUpperControl + ".ty", translateYAnimBlendUpper + ".weightA"
-            )
-            mc.setAttr(translateYAnimBlendUpper + ".inputA", -15)
-            mc.setAttr(translateYAnimBlendUpper + ".inputB", openLidAngle * -1)
-            # Lower Lid:
-            translateYAnimBlendLower = mc.createNode(
-                "animBlendNodeAdditiveDA",
-                n="%s_lidLowerTranslateYtoRotateJoint_ADA" % side,
-            )
-            mc.connectAttr(
-                lidLowerControl + ".ty", translateYAnimBlendLower + ".weightA"
-            )
-            mc.setAttr(translateYAnimBlendLower + ".inputA", -15)
-            mc.setAttr(translateYAnimBlendLower + ".inputB", openLidAngle)
 
-            # left/right
-            # Upper Lid:
-            combineXandYTranslateUpper = mc.createNode(
-                "animBlendNodeAdditiveDA",
-                n="%s_lidUpperTranslateXYtoRotateJoint_ADA" % side,
+            # Lists of the lid base and bind joints respectively:
+            (
+                upperLidJoints,
+                upperLidBindJoints,
+                lowerLidJoints,
+                lowerLidBindJoints,
+                cornerBindJoints,
+            ) = (
+                [],
+                [],
+                [],
+                [],
+                [],
             )
-            translateXAnimBlendUpper = mc.createNode(
-                "animBlendNodeAdditiveDA",
-                n="%s_lidUpperTranslateXtoRotateJoint_ADA" % side,
-            )
-            mc.connectAttr(
-                lidUpperControl + ".tx", translateXAnimBlendUpper + ".weightA"
-            )
-            mc.setAttr(translateXAnimBlendUpper + ".inputA", 5)
-            mc.connectAttr(
-                translateXAnimBlendUpper + ".output",
-                combineXandYTranslateUpper + ".inputA",
-            )
-            # mc.connectAttr(
-            #     translateYAnimBlendUpper + ".output",
-            #     combineXandYTranslateUpper + ".inputB",
-            # )
-            negatedcombineXandYTranslateUpper = mc.createNode(
-                "animBlendNodeAdditiveDA",
-                n="%s_lidUpperTranslateXYtoRotateJointNegative_ADA" % side,
-            )
-            mc.connectAttr(
-                translateXAnimBlendUpper + ".output",
-                negatedcombineXandYTranslateUpper + ".inputA",
-            )
-            # mc.connectAttr(
-            #     translateYAnimBlendUpper + ".output",
-            #     negatedcombineXandYTranslateUpper + ".inputB",
-            # )
-            mc.setAttr(negatedcombineXandYTranslateUpper + ".weightA", -1)
-            # Lower lid:
-            combineXandYTranslateLowerNegated = mc.createNode(
-                "animBlendNodeAdditiveDA",
-                n="%s_lidLowerTranslateXYtoRotateJointNegated_ADA" % side,
-            )
-            mc.setAttr(combineXandYTranslateLowerNegated + ".weightA", -1)
-            translateXAnimBlendLower = mc.createNode(
-                "animBlendNodeAdditiveDA",
-                n="%s_lidLowerTranslateXtoRotateJoint_ADA" % side,
-            )
-            mc.connectAttr(
-                lidLowerControl + ".tx", translateXAnimBlendLower + ".weightA"
-            )
-            mc.setAttr(translateXAnimBlendLower + ".inputA", 5)
-            mc.connectAttr(
-                translateXAnimBlendLower + ".output",
-                combineXandYTranslateLowerNegated + ".inputA",
-            )
-            # mc.connectAttr(
-            #     translateYAnimBlendLower + ".output",
-            #     combineXandYTranslateLowerNegated + ".inputB",
-            # )
-            combineXandYTranslateLower = mc.createNode(
-                "animBlendNodeAdditiveDA",
-                n="%s_lidLowerTranslateXYtoRotateJoint_ADA" % side,
-            )
-            mc.connectAttr(
-                translateXAnimBlendLower + ".output",
-                combineXandYTranslateLower + ".inputA",
-            )
-            # mc.connectAttr(
-            #     translateYAnimBlendLower + ".output",
-            #     combineXandYTranslateLower + ".inputB",
-            # )
-            # mc.setAttr(combineXandYTranslateLower + ".weightA", -1)
-            # Collision Setup (subtraction is from Upper):
-            # Create ADA nodes that calcutale the angle between upper and lower joint
-            innerJointsCollisonAngle = mc.createNode(
-                "animBlendNodeAdditiveDA",
-                n="%s_lidInnerJointsCollisionAngle_ADA" % side,
-            )
-            mc.connectAttr(
-                combineXandYTranslateUpper + ".output",
-                innerJointsCollisonAngle + ".inputA",
-            )
-            mc.connectAttr(
-                combineXandYTranslateLower + ".output",
-                innerJointsCollisonAngle + ".inputB",
-            )
-            mc.setAttr(innerJointsCollisonAngle + ".weightB", -1)
-            midJointsCollisonAngle = mc.createNode(
-                "animBlendNodeAdditiveDA", n="%s_lidMidJointsCollisionAngle_ADA" % side
-            )
-            mc.connectAttr(
-                translateYAnimBlendUpper + ".output", midJointsCollisonAngle + ".inputA"
-            )
-            mc.connectAttr(
-                translateYAnimBlendLower + ".output", midJointsCollisonAngle + ".inputB"
-            )
-            mc.setAttr(midJointsCollisonAngle + ".weightB", -1)
-            outerJointsCollisonAngle = mc.createNode(
-                "animBlendNodeAdditiveDA",
-                n="%s_lidOuterJointsCollisionAngle_ADA" % side,
-            )
-            mc.connectAttr(
-                combineXandYTranslateLowerNegated + ".output",
-                outerJointsCollisonAngle + ".inputB",
-            )
-            mc.connectAttr(
-                negatedcombineXandYTranslateUpper + ".output",
-                outerJointsCollisonAngle + ".inputA",
-            )
-            mc.setAttr(outerJointsCollisonAngle + ".weightB", -1)
-            # Set up and connect the blink attribute:
-            # Mid Joint:
-            midJointsCollisonAngleHalved = mc.createNode(
-                "animBlendNodeAdditiveDA", n="%s_lidMidJointsAngleHalved_ADA" % side
-            )
-            mc.connectAttr(
-                midJointsCollisonAngle + ".output",
-                midJointsCollisonAngleHalved + ".inputA",
-            )
-            mc.setAttr(midJointsCollisonAngleHalved + ".weightA", 0.5)
-            blinkRotationMidJoint = mc.createNode(
-                "animBlendNodeAdditiveDA",
-                n="%s_lidMidJointAngleWithBlinkAccountedFor_ADA" % side,
-            )
-            mc.connectAttr(
-                midJointsCollisonAngleHalved + ".output",
-                blinkRotationMidJoint + ".inputA",
-            )
-            mc.connectAttr(
-                blinkRatioNode + ".output", blinkRotationMidJoint + ".weightA"
-            )
-            blinkRotationMidJointNegated = mc.createNode(
-                "animBlendNodeAdditiveDA",
-                n="%s_lidMidJointAngleWithBlinkAccountedForNegated_ADA" % side,
-            )
-            mc.connectAttr(
-                blinkRotationMidJoint + ".output",
-                blinkRotationMidJointNegated + ".inputA",
-            )
-            mc.setAttr(blinkRotationMidJointNegated + ".weightA", -1)
-            midUpperJointFinalRotation = mc.createNode(
-                "animBlendNodeAdditiveDA",
-                n="%s_lidUpperMidJointFinalRotation_ADA" % side,
-            )
-            mc.connectAttr(
-                translateYAnimBlendUpper + ".output",
-                midUpperJointFinalRotation + ".inputA",
-            )
-            mc.connectAttr(
-                blinkRotationMidJointNegated + ".output",
-                midUpperJointFinalRotation + ".inputB",
-            )
-            midLowerJointFinalRotation = mc.createNode(
-                "animBlendNodeAdditiveDA",
-                n="%s_lidLowerMidJointFinalRotation_ADA" % side,
-            )
-            mc.connectAttr(
-                translateYAnimBlendLower + ".output",
-                midLowerJointFinalRotation + ".inputA",
-            )
-            mc.connectAttr(
-                blinkRotationMidJoint + ".output",
-                midLowerJointFinalRotation + ".inputB",
-            )
-            differenceAfterTheBlink = mc.createNode(
-                "animBlendNodeAdditiveDA",
-                n="%s_lidMidJointsAngleDifferenceAfterBlink_ADA" % side,
-            )
-            mc.connectAttr(
-                midUpperJointFinalRotation + ".output",
-                differenceAfterTheBlink + ".inputA",
-            )
-            mc.connectAttr(
-                midLowerJointFinalRotation + ".output",
-                differenceAfterTheBlink + ".inputB",
-            )
-            mc.setAttr(differenceAfterTheBlink + ".weightB", -1)
-            # Replace the direct translate Y connection into the inner/outer joints translateXY to rotate with the blink accounted for rotation ADA node:
-            # Upper side joints:
-            mc.connectAttr(
-                midUpperJointFinalRotation + ".output",
-                negatedcombineXandYTranslateUpper + ".inputB",
-            )
-            mc.connectAttr(
-                midUpperJointFinalRotation + ".output",
-                combineXandYTranslateUpper + ".inputB",
-            )
-            mc.connectAttr(
-                midLowerJointFinalRotation + ".output",
-                combineXandYTranslateLowerNegated + ".inputB",
-            )
-            mc.connectAttr(
-                midLowerJointFinalRotation + ".output",
-                combineXandYTranslateLower + ".inputB",
-            )
+            # Create an inner and outer corner lid joints and controls.
+            for corner in ["Inner", "Outer"]:
+                cornerGroup = mc.createNode(
+                    "transform", name="%s_lid%sCornerSetup_GRP" % (side, corner)
+                )
+                mc.parent(cornerGroup, eyeSystemCtl, r=1)
+                # Duplicate the base joint, create a new joint and parent it underneath,
+                # then use the points at the beginning and the end of the
+                # upper Lid Curve to position the Bind joint exactly at the
+                # corners of the eye.
+                cornerJnt = mc.duplicate(baseGuideJoint)[0]
+                cornerJnt = mc.rename(
+                    cornerJnt,
+                    cornerJnt.replace("lidBase_JNT1", "lid%sCorner_JNT" % corner),
+                )
 
-            # Clamp positive values for the collision angle(when lid is open the angle is negative):
-            anglePositiveClamp = mc.createNode(
+                cornerBindJnt = mc.createNode(
+                    "joint", name="%s_lid%sCornerBind_JNT" % (side, corner)
+                )
+                mc.parent(cornerBindJnt, cornerJnt, r=1)
+                mc.parent(cornerJnt, cornerGroup)
+                cornerBindJoints.append(cornerBindJnt)
+                if corner == "Inner":
+                    curveLocation = mc.pointOnCurve(upperLidCRV, pr=0, p=True, top=True)
+                else:
+                    curveLocation = mc.pointOnCurve(upperLidCRV, pr=1, p=True, top=True)
+                mc.move(
+                    curveLocation[0],
+                    curveLocation[1],
+                    curveLocation[2],
+                    cornerBindJnt,
+                    ws=1,
+                )
+                addToSkinJoints(cornerBindJnt)
+                # Create a control for the corner joint, where the translation drives the corner joint rotation.
+                ctl, ofs, grp = buildControl(
+                    side,
+                    "lid%sCorner" % corner,
+                    guide=cornerBindJnt,
+                    shapeCVs=cs.TRIANGLE_SHAPE_CVS,
+                )
+                if corner == "Inner":
+                    mc.rotate(-90, 0, -75, ctl + ".cv[*]", ws=1)
+                else:
+                    mc.rotate(-90, 0, 105, ctl + ".cv[*]", ws=1)
+
+                mc.scale(0.5, 0.5, 0.5, ctl + ".cv[*]")
+                mc.move(0, 0, 1, ctl + ".cv[*]", r=1)
+                mc.parent(grp, cornerGroup)
+                # NOTE: do i need this? # Get radius of eye joint to use for setting .tz of the bind joint:
+                # tzOfEyeBindJoint = (mc.getAttr(eyeJnt + ".radius")) * 0.5
+                # Take the translate Y and X of the corner controls and use it to drive the rotation in X of the corner joints:
+                translateYtoRotateX = mc.createNode(
+                    "animBlendNodeAdditiveDA",
+                    n="%s_eyeLid%sCornerTranslateYtoRotateXJoint_ADA" % (side, corner),
+                )
+                mc.setAttr(translateYtoRotateX + ".inputA", -4)
+                mc.connectAttr(ctl + ".ty", translateYtoRotateX + ".weightA")
+                mc.connectAttr(translateYtoRotateX + ".output", cornerJnt + ".rx")
+                translateXtoRotateY = mc.createNode(
+                    "animBlendNodeAdditiveDA",
+                    n="%s_eyeLid%sCornerTranslateXtoRotateYJoint_ADA" % (side, corner),
+                )
+                mc.setAttr(translateXtoRotateY + ".inputA", 4)
+                mc.connectAttr(ctl + ".tx", translateXtoRotateY + ".weightA")
+                mc.connectAttr(translateXtoRotateY + ".output", cornerJnt + ".ry")
+            # Create three base and three bind lid joints for upper and lower respectively
+            lidControls = []
+            for lid in ["Upper", "Lower"]:
+                if lid == "Upper":
+                    cvs = upperLidGuideCVs
+                    midCV = midCVUpper
+                    openLidAngle = abs(openLidAngle) * -1
+                    nodesInput = ".inputA"
+                else:
+                    cvs = lowerLidGuideCVs
+                    midCV = midCVLower
+                    openLidAngle = abs(openLidAngle)
+                    nodesInput = ".inputB"
+
+                lidBaseJoints, lidBindJoints = [], []
+
+                # Create groups for lid controls and position them in the hierarchy:
+                lidGroup = mc.createNode(
+                    "transform", name="%s_lid%sSetup_GRP" % (side, lid)
+                )
+                mc.parent(lidGroup, eyeSystemCtl, r=1)
+
+                # Get radius of eye joint to use for setting .tz of the bind joint:
+                tzOfEyeBindJoint = (mc.getAttr(eyeJnt + ".radius")) * 0.5
+
+                # Create three pairs of joints for the respective lid by duplicating
+                # the base joint as created above. Position the bind joints at
+                # the respective positions as extracted from the lid curves,
+                # but keep the tZ of each = to the radius of the eye joint and
+                # the base joints rotated so that the bind joints are at the
+                # blink line
+                for i in range(3):
+                    duplicate = mc.duplicate(baseGuideJoint)[0]
+                    duplicate = mc.rename(
+                        duplicate,
+                        duplicate.replace(
+                            "lidBase_JNT1", "lid%s%s_JNT" % (lid, str(i).zfill(2))
+                        ),
+                    )
+                    lidBaseJoints.append(duplicate)
+                    lidBindJnt = mc.createNode(
+                        "joint",
+                        name="%s_lid%sBind%s_JNT" % (side, lid, str(i).zfill(2)),
+                    )
+                    mc.parent(lidBindJnt, duplicate, r=1)
+                    mc.setAttr(lidBindJnt + ".tx", cvs[i][0])
+                    # NOTE one of these must be useless:
+                    mc.setAttr(lidBindJnt + ".tz", tzOfEyeBindJoint)
+                    mc.move(
+                        cvs[i][0], midwayPoint[1], cvs[i][2], lidBindJnt, ws=1,
+                    )
+                    mc.setAttr(lidBindJnt + ".tz", tzOfEyeBindJoint)
+                    lidBindJoints.append(lidBindJnt)
+                    addToSkinJoints(lidBindJnt)
+
+                    # Set to blink line
+                    mc.setAttr(lidBindJnt + ".ty", 0)
+                    mc.parent(duplicate, lidGroup)
+                # Controls to drive the rotation of lid joints via translation:
+                # Position the guide transform at the respective mid CV for each lid curve
+                mc.move(midCV[0], midCV[1], midCV[2], guideTransformOpenEye)
+
+                ctl, ofs, grp = buildControl(
+                    side,
+                    "lid%s" % lid,
+                    guide=guideTransformOpenEye,
+                    shapeCVs=cs.TRIANGLE_SHAPE_CVS,
+                    colour=18 if side == "L" else 20,
+                )
+                mc.parent(grp, lidGroup)
+                if lid == "Upper":
+                    mc.rotate(90, 0, 0, ctl + ".cv[*]")
+                else:
+                    mc.rotate(90, 0, 180, ctl + ".cv[*]")
+
+                mc.scale(0.5, 0.5, 0.5, ctl + ".cv[*]")
+                mc.move(0, 0, 1, ctl + ".cv[*]", r=1)
+                mc.delete(mc.orientConstraint(lidBindJoints[1], grp, mo=0))
+                lidControls.append(ctl)
+                # Create a Blink Attr on the upper lid control:
+                if lid == "Upper":
+                    blinkAttr = gen.addAttr(
+                        ctl, ln="blink", at="float", min=0, max=10, k=1
+                    )
+                    blinkRatioNode = mc.createNode(
+                        "multDoubleLinear", n="%s_blinkAttrRatio_MDL" % side
+                    )
+                    mc.setAttr(blinkRatioNode + ".inputB", 0.1)
+                    mc.connectAttr(blinkAttr, blinkRatioNode + ".input1")
+                    # Nodes for the middle set of eye joints which calculate the
+                    # angle between the mid joints as driven by ctl.ty, halve that
+                    # in preparation for calculating the final rotation value as set
+                    # by ctl.ty + the blink attribute for the respective upper and lower
+                    # mid lid joints:
+                    midJointsAngleBetween = mc.createNode(
+                        "animBlendNodeAdditiveDA",
+                        n="%s_lidMidJointsAngleBetweenFromTY_ADA" % side,
+                    )
+                    mc.setAttr(
+                        midJointsAngleBetween + ".weightB", -1
+                    )  # lower lid rotations are positive
+
+                    midJointsAngleBetweenHalved = mc.createNode(
+                        "animBlendNodeAdditiveDA",
+                        n="%s_lidMidJointsAngleBetweenFromTYHalved_ADA" % side,
+                    )
+                    mc.connectAttr(
+                        midJointsAngleBetween + ".output",
+                        midJointsAngleBetweenHalved + ".inputA",
+                    )
+                    mc.setAttr(midJointsAngleBetweenHalved + ".weightA", 0.5)
+
+                    midJointsAngleBetweenHalvedWithBlink = mc.createNode(
+                        "animBlendNodeAdditiveDA",
+                        n="%s_lidMidJointsAngleBetweenFromTYHalvedWithBlink_ADA" % side,
+                    )
+                    mc.connectAttr(
+                        midJointsAngleBetweenHalved + ".output",
+                        midJointsAngleBetweenHalvedWithBlink + ".inputA",
+                    )
+                    mc.connectAttr(
+                        blinkRatioNode + ".output",
+                        midJointsAngleBetweenHalvedWithBlink + ".weightA",
+                    )
+
+                    midJointsAngleBetweenHalvedWithBlinkNegated = mc.createNode(
+                        "animBlendNodeAdditiveDA",
+                        n="%s_lidMidJointsAngleBetweenFromTYHalvedWithBlinkNegated_ADA"
+                        % side,
+                    )
+                    mc.connectAttr(
+                        midJointsAngleBetweenHalvedWithBlink + ".output",
+                        midJointsAngleBetweenHalvedWithBlinkNegated + ".inputA",
+                    )
+                    mc.setAttr(
+                        midJointsAngleBetweenHalvedWithBlinkNegated + ".weightA", -1
+                    )
+                    # Angle between ADA nodes for the inner and outer pairs of joints:
+                    lidInnerJointsAngleBetween = mc.createNode(
+                        "animBlendNodeAdditiveDA",
+                        n="%s_lidInnerJointsAngleBetweenFromtXY_ADA" % side,
+                    )
+                    mc.setAttr(innerJointsAngleBetween + ".weightB", -1)
+                    lidOuterJointsAngleBetween = mc.createNode(
+                        "animBlendNodeAdditiveDA",
+                        n="%s_lidOuterJointsAngleBetweenFromtXY_ADA" % side,
+                    )
+                    mc.setAttr(innerJointsAngleBetween + ".weightB", -1)
+
+                # Create animblend Nodes that use the translate X and Y of the lid control to drive rotation:
+                lidTranslateYtoRotation = mc.createNode(
+                    mc.createNode(
+                        "animBlendNodeAdditiveDA",
+                        n="%s_eyelid%sTranslateYtoRotateJoint_ADA" % (side, lid),
+                    )
+                )
+                mc.connectAttr(ctl + ".ty", lidTranslateYtoRotation + ".weightA")
+                mc.setAttr(lidTranslateYtoRotation + ".inputA", -15)
+                mc.setAttr(lidTranslateYtoRotation + ".inputB", openLidAngle)
+                # conect to the node calculating the angle between mid joints:
+                mc.connectAttr(
+                    lidTranslateYtoRotation + ".output",
+                    midJointsAngleBetween + nodesInput,
+                )
+
+                lidTranslateXtoRotation = mc.createNode(
+                    "animBlendNodeAdditiveDA",
+                    n="%s_eyelid%sTranslateXtoRotateJoint_ADA" % (side, lid),
+                )
+                mc.connectAttr(ctl + ".tx", lidTranslateXtoRotation + ".weightA")
+                if lid == "Upper":
+                    mc.setAttr(lidTranslateXtoRotation + ".inputA", 5)
+                else:
+                    mc.setAttr(lidTranslateXtoRotation + ".inputA", -5)
+
+                # negating the tX driven rotation to account for inner/outer
+                # joints of the lid to rotate in the oposite direction:
+
+                lidTranslateXtoRotationNegated = mc.createNode(
+                    "animBlendNodeAdditiveDA",
+                    n="%s_eyelid%sTranslateXtoRotateJointNegated_ADA" % (side, lid),
+                )
+                mc.setAttr(lidTranslateXtoRotationNegated + ".weightA", -1)
+                mc.connectAttr(
+                    lidTranslateXtoRotation + ".output",
+                    lidTranslateXtoRotationNegated + ".inputA",
+                )
+
+                # Mid final rotation taking in the ctl.ty rotation and the blinked value:
+                midJointFinalRotation = mc.createNode(
+                    "animBlendNodeAdditiveDA",
+                    n="%s_lid%sMidJointsFinalRotation_ADA" % (side, lid),
+                )
+                mc.connectAttr(
+                    lidTranslateYtoRotation + ".output",
+                    midJointFinalRotation + ".inputA",
+                )
+                if lid == "Upper":
+                    mc.connectAttr(
+                        midJointsAngleBetweenHalvedWithBlinkNegated + ".output",
+                        midJointFinalRotation + ".inputB",
+                    )
+                else:
+                    mc.connectAttr(
+                        midJointsAngleBetweenHalvedWithBlink + ".output",
+                        midJointFinalRotation + ".inputB",
+                    )
+
+                for lidCornerJoint in ["Inner", "Outer"]:
+                    if lid == "Upper":
+                        finalRotationWBValue = -1
+                        if lidCornerJoint == "Inner":
+                            xyNodeInput = lidTranslateXtoRotation
+                            angleBetweenNode = lidInnerJointsAngleBetween
+
+                        elif lidCornerJoint == "Outer":
+                            xyNodeInput = lidTranslateXtoRotationNegated
+                            angleBetweenNode = lidOuterJointsAngleBetween
+
+                        jointsAngleBetweenHalved = mc.createNode(
+                            "animBlendNodeAdditiveDA",
+                            n="%s_lid%sJointsAngleBetweenFromTYHalved_ADA"
+                            % (side, lidCornerJoint),
+                        )
+                        mc.connectAttr(
+                            angleBetweenNode + ".output",
+                            jointsAngleBetweenHalved + ".inputA",
+                        )
+                        mc.setAttr(jointsAngleBetweenHalved + ".weightA", 0.5)
+
+                        jointsAngleBetweenHalvedWithBlink = mc.createNode(
+                            "animBlendNodeAdditiveDA",
+                            n="%s_lid%sJointsAngleBetweenFromTYHalvedWithBlink_ADA"
+                            % (side, lidCornerJoint),
+                        )
+                        mc.connectAttr(
+                            jointsAngleBetweenHalved + ".output",
+                            jointsAngleBetweenHalvedWithBlink + ".inputA",
+                        )
+                        mc.connectAttr(
+                            blinkRatioNode + ".output",
+                            jointsAngleBetweenHalvedWithBlink + ".weightA",
+                        )
+                    elif lid == "Lower":
+                        finalRotationWBValue = 1
+                        if lidCornerJoint == "Inner":
+                            xyNodeInput = lidTranslateXtoRotationNegated
+                            angleBetweenNode = lidInnerJointsAngleBetween
+                        elif lidCornerJoint == "Outer":
+                            xyNodeInput = lidTranslateXtoRotation
+                            angleBetweenNode = lidOuterJointsAngleBetween
+
+                    angleBetweenHalvedWithBlink = (
+                        "%s_lid%sJointsAngleBetweenFromTYHalvedWithBlink_ADA"
+                        % (side, lidCornerJoint)
+                    )
+
+                    lidTranslateXYtoRotateJoint = mc.createNode(
+                        "animBlendNodeAdditiveDA",
+                        n="%s_lid%s%sTranslateXYtyRotateJoint_ADA"
+                        % (side, lid, lidCornerJoint),
+                    )
+                    mc.connectAttr(
+                        xyNodeInput + ".output", lidTranslateXYtoRotateJoint + ".inputA"
+                    )
+                    mc.connectAttr(
+                        midJointFinalRotation + ".output",
+                        lidTranslateXYtoRotateJoint + ".inputB",
+                    )
+
+                    # Connect to the side joints Angle between Node:
+                    mc.connectAttr(
+                        lidTranslateXYtoRotateJoint + ".output",
+                        angleBetweenNode + nodesInput,
+                    )
+
+                    lidCornerJointFinalRotation = mc.createNode(
+                        "animBlendNodeAdditiveDA",
+                        n="%s_lid%s%sJointFinalRotation_ADA"
+                        % (side, lid, lidCornerJoint),
+                    )
+                    mc.setAttr(
+                        lidCornerJointFinalRotation + ".weightB", finalRotationWBValue
+                    )
+                    mc.connectAttr(
+                        angleBetweenHalvedWithBlink + ".output",
+                        lidCornerJointFinalRotation + ".inputB",
+                    )
+                    mc.connectAttr(
+                        lidTranslateXYtoRotateJoint + ".output",
+                        lidCornerJointFinalRotation + ".inputA",
+                    )
+
+                #     for jointSet in ["Inner", "Mid", "Outer"]:
+                #         # AngleBetween nodes for each pair of joints -
+                #         # used to calculate the angle between each pair of joints as
+                #         # dictated by the tX/tY of the controls
+                #         angleBetweenNode = mc.createNode(
+                #             "animBlendNodeAdditiveDA",
+                #             n="%s_lid%sJointsAngleBetween_ADA" % (side, jointSet),
+                #         )
+                #         mc.setAttr(angleBetweenNode + ".weightB", -1)
+
+                #         angleBetweenHalved = mc.createNode(
+                #             "animBlendNodeAdditiveDA",
+                #             n="%s_lid%sJointsAngleBetweenHalved_ADA" % (side, jointSet),
+                #         )
+                #         mc.setAttr(angleBetweenHalved + ".weightA", 0.5)
+                #         mc.connectAttr(
+                #             angleBetweenNode + ".output", angleBetweenHalved + ".inputA"
+                #         )
+                #         # Accounting for blink by plugging in the blink ratio as weight to the halved angle value:
+                #         angleBetweenHalvedWithBlinkAccountedFor = mc.createNode(
+                #             "animBlendNodeAdditiveDA",
+                #             n="%s_lid%sJointsAngleBetweenHalvedWithBlinkAccountedFor_ADA"
+                #             % (side, jointSet),
+                #         )
+                #         mc.connectAttr(
+                #             blinkRatioNode + ".output",
+                #             angleBetweenHalvedWithBlinkAccountedFor + ".weightA",
+                #         )
+                #         mc.connectAttr(
+                #             angleBetweenHalved + ".output",
+                #             angleBetweenHalvedWithBlinkAccountedFor + ".inputA",
+                #         )
+
+                #         angleBetweenHalvedWithBlinkAccountedForNegated = mc.createNode(
+                #             "animBlendNodeAdditiveDA",
+                #             n="%s_lid%sJointsAngleBetweenHalvedWithBlinkAccountedForNegated_ADA"
+                #             % (side, jointSet),
+                #         )
+                #         mc.setAttr(
+                #             angleBetweenHalvedWithBlinkAccountedForNegated + ".weightA",
+                #             -1,
+                #         )
+                #         mc.connectAttr(
+                #             angleBetweenHalvedWithBlinkAccountedFor + ".output",
+                #             angleBetweenHalvedWithBlinkAccountedForNegated + ".inputA",
+                #         )
+
+                #     # Clamp node created in preparation for the final connections.
+                #     # This will take the difference angle difference between upper
+                #     # and lower joints with the blink accounted for and clamp
+                #     # positive values between 0 and 180 (when lid is open the
+                #     # angle is negative):
+                #     anglePositiveClamp = mc.createNode(
+                #         "clamp", n="%s_lidJointsAnglePositive_CLP" % side
+                #     )
+                #     mc.setAttr(anglePositiveClamp + ".maxR", 180)
+                #     mc.setAttr(anglePositiveClamp + ".maxG", 180)
+                #     mc.setAttr(anglePositiveClamp + ".maxB", 180)
+                #     # Divide the collision angle to simulate resistance so that
+                #     # when the joints collide each is dislplaced equally,
+                #     # as opposed to one appearing to force the other:
+                #     divideCollisonAngle = mc.createNode(
+                #         "multiplyDivide", n="%s_lidJointCollisonAngleHalved_MDV" % side
+                #     )
+                #     mc.setAttr(divideCollisonAngle + ".operation", 1)
+                #     mc.connectAttr(
+                #         anglePositiveClamp + ".outputR",
+                #         divideCollisonAngle + ".input1X",
+                #     )
+                #     mc.connectAttr(
+                #         anglePositiveClamp + ".outputG",
+                #         divideCollisonAngle + ".input1Y",
+                #     )
+                #     mc.connectAttr(
+                #         anglePositiveClamp + ".outputB",
+                #         divideCollisonAngle + ".input1Z",
+                #     )
+                #     mc.setAttr(divideCollisonAngle + ".input2X", 0.5)
+                #     mc.setAttr(divideCollisonAngle + ".input2Y", 0.5)
+                #     mc.setAttr(divideCollisonAngle + ".input2Z", 0.5)
+
+                # # Create ADA nodes used to convert the tX and tY values of the lid control into rotations:
+                # # translateY
+                # translateYAnimBlend = mc.createNode(
+                #     "animBlendNodeAdditiveDA",
+                #     n="%s_lid%sTranslateYtoRotateJoint_ADA" % (side, lid),
+                # )
+                # mc.connectAttr(ctl + ".ty", translateYAnimBlend + ".weightA")
+                # mc.setAttr(translateYAnimBlend + ".inputA", -15)
+                # mc.setAttr(translateYAnimBlend + ".inputB", openLidAngle)
+                # mc.connectAttr(
+                #     translateYAnimBlend + ".output",
+                #     ("%s_lidMidJointsAngleBetween_ADA" % side) + nodesInput,
+                # )
+                # # translateX:
+                # translateXAnimBlend = mc.createNode(
+                #     "animBlendNodeAdditiveDA",
+                #     n="%s_lid%sTranslateXtoRotateJoint_ADA" % (side, lid),
+                # )
+
+                # mc.connectAttr(ctl + ".tx", translateXAnimBlend + ".weightA")
+                # if lid == "Upper":
+                #     mc.setAttr(translateXAnimBlend + ".inputA", 5)
+                # else:
+                #     mc.setAttr(translateXAnimBlend + ".inputA", -5)
+                # mc.connectAttr(
+                #     translateXAnimBlend + ".output",
+                #     ("%s_lidSideJointsAngleBetween_ADA" % side) + nodesInput,
+                # )
+                # # Collision Setup (subtraction is from Upper):
+                # # Create ADA nodes that calcutale the angle between upper and lower joint
+                # innerJointsCollisonAngle = mc.createNode(
+                #     "animBlendNodeAdditiveDA",
+                #     n="%s_lidInnerJointsCollisionAngle_ADA" % side,
+                # )
+                # mc.connectAttr(
+                #     combineXandYTranslateUpper + ".output",
+                #     innerJointsCollisonAngle + ".inputA",
+                # )
+                # mc.connectAttr(
+                #     combineXandYTranslateLower + ".output",
+                #     innerJointsCollisonAngle + ".inputB",
+                # )
+                # mc.setAttr(innerJointsCollisonAngle + ".weightB", -1)
+                # midJointsCollisonAngle = mc.createNode(
+                #     "animBlendNodeAdditiveDA",
+                #     n="%s_lidMidJointsCollisionAngle_ADA" % side,
+                # )
+                # mc.connectAttr(
+                #     translateYAnimBlendUpper + ".output",
+                #     midJointsCollisonAngle + ".inputA",
+                # )
+                # mc.connectAttr(
+                #     translateYAnimBlendLower + ".output",
+                #     midJointsCollisonAngle + ".inputB",
+                # )
+                # mc.setAttr(midJointsCollisonAngle + ".weightB", -1)
+                # outerJointsCollisonAngle = mc.createNode(
+                #     "animBlendNodeAdditiveDA",
+                #     n="%s_lidOuterJointsCollisionAngle_ADA" % side,
+                # )
+                # mc.connectAttr(
+                #     combineXandYTranslateLowerNegated + ".output",
+                #     outerJointsCollisonAngle + ".inputB",
+                # )
+                # mc.connectAttr(
+                #     negatedcombineXandYTranslateUpper + ".output",
+                #     outerJointsCollisonAngle + ".inputA",
+                # )
+                # mc.setAttr(outerJointsCollisonAngle + ".weightB", -1)
+                # # Set up and connect the blink attribute:
+                # # Mid Joint:
+                # midJointsCollisonAngleHalved = mc.createNode(
+                #     "animBlendNodeAdditiveDA", n="%s_lidMidJointsAngleHalved_ADA" % side
+                # )
+                # mc.connectAttr(
+                #     midJointsCollisonAngle + ".output",
+                #     midJointsCollisonAngleHalved + ".inputA",
+                # )
+                # mc.setAttr(midJointsCollisonAngleHalved + ".weightA", 0.5)
+                # blinkRotationMidJoint = mc.createNode(
+                #     "animBlendNodeAdditiveDA",
+                #     n="%s_lidMidJointAngleWithBlinkAccountedFor_ADA" % side,
+                # )
+                # mc.connectAttr(
+                #     midJointsCollisonAngleHalved + ".output",
+                #     blinkRotationMidJoint + ".inputA",
+                # )
+                # mc.connectAttr(
+                #     blinkRatioNode + ".output", blinkRotationMidJoint + ".weightA"
+                # )
+                # blinkRotationMidJointNegated = mc.createNode(
+                #     "animBlendNodeAdditiveDA",
+                #     n="%s_lidMidJointAngleWithBlinkAccountedForNegated_ADA" % side,
+                # )
+                # mc.connectAttr(
+                #     blinkRotationMidJoint + ".output",
+                #     blinkRotationMidJointNegated + ".inputA",
+                # )
+                # mc.setAttr(blinkRotationMidJointNegated + ".weightA", -1)
+                # midUpperJointFinalRotation = mc.createNode(
+                #     "animBlendNodeAdditiveDA",
+                #     n="%s_lidUpperMidJointFinalRotation_ADA" % side,
+                # )
+                # mc.connectAttr(
+                #     translateYAnimBlendUpper + ".output",
+                #     midUpperJointFinalRotation + ".inputA",
+                # )
+                # mc.connectAttr(
+                #     blinkRotationMidJointNegated + ".output",
+                #     midUpperJointFinalRotation + ".inputB",
+                # )
+                # midLowerJointFinalRotation = mc.createNode(
+                #     "animBlendNodeAdditiveDA",
+                #     n="%s_lidLowerMidJointFinalRotation_ADA" % side,
+                # )
+                # mc.connectAttr(
+                #     translateYAnimBlendLower + ".output",
+                #     midLowerJointFinalRotation + ".inputA",
+                # )
+                # mc.connectAttr(
+                #     blinkRotationMidJoint + ".output",
+                #     midLowerJointFinalRotation + ".inputB",
+                # )
+                # differenceAfterTheBlink = mc.createNode(
+                #     "animBlendNodeAdditiveDA",
+                #     n="%s_lidMidJointsAngleDifferenceAfterBlink_ADA" % side,
+                # )
+                # mc.connectAttr(
+                #     midUpperJointFinalRotation + ".output",
+                #     differenceAfterTheBlink + ".inputA",
+                # )
+                # mc.connectAttr(
+                #     midLowerJointFinalRotation + ".output",
+                #     differenceAfterTheBlink + ".inputB",
+                # )
+                # mc.setAttr(differenceAfterTheBlink + ".weightB", -1)
+                # # Replace the direct translate Y connection into the inner/outer joints translateXY to rotate with the blink accounted for rotation ADA node:
+                # # Upper side joints:
+                # mc.connectAttr(
+                #     midUpperJointFinalRotation + ".output",
+                #     negatedcombineXandYTranslateUpper + ".inputB",
+                # )
+                # mc.connectAttr(
+                #     midUpperJointFinalRotation + ".output",
+                #     combineXandYTranslateUpper + ".inputB",
+                # )
+                # mc.connectAttr(
+                #     midLowerJointFinalRotation + ".output",
+                #     combineXandYTranslateLowerNegated + ".inputB",
+                # )
+                # mc.connectAttr(
+                #     midLowerJointFinalRotation + ".output",
+                #     combineXandYTranslateLower + ".inputB",
+                # )
+
+                # # Clamp positive values for the collision angle(when lid is open the angle is negative):
+                # anglePositiveClamp = mc.createNode(
+                #     "clamp", n="%s_lidJointsAnglePositive_CLP" % side
+                # )
+                # mc.setAttr(anglePositiveClamp + ".maxR", 180)
+                # mc.setAttr(anglePositiveClamp + ".maxG", 180)
+                # mc.setAttr(anglePositiveClamp + ".maxB", 180)
+                # mc.connectAttr(
+                #     innerJointsCollisonAngle + ".output", anglePositiveClamp + ".inputR"
+                # )
+                # mc.connectAttr(
+                #     differenceAfterTheBlink + ".output", anglePositiveClamp + ".inputG"
+                # )
+                # mc.connectAttr(
+                #     outerJointsCollisonAngle + ".output", anglePositiveClamp + ".inputB"
+                # )
+                # # Divide the collision angle to simulate resistance:
+                # divideCollisonAngle = mc.createNode(
+                #     "multiplyDivide", n="%s_lidJointCollisonAngleHalved_MDV" % side
+                # )
+                # mc.setAttr(divideCollisonAngle + ".operation", 1)
+                # mc.connectAttr(
+                #     anglePositiveClamp + ".outputR", divideCollisonAngle + ".input1X"
+                # )
+                # mc.connectAttr(
+                #     anglePositiveClamp + ".outputG", divideCollisonAngle + ".input1Y"
+                # )
+                # mc.connectAttr(
+                #     anglePositiveClamp + ".outputB", divideCollisonAngle + ".input1Z"
+                # )
+                # mc.setAttr(divideCollisonAngle + ".input2X", 0.5)
+                # mc.setAttr(divideCollisonAngle + ".input2Y", 0.5)
+                # mc.setAttr(divideCollisonAngle + ".input2Z", 0.5)
+                # # Create final AnimBlend nodes to combine the rotation from the control and the collison angle:
+                # upperNodes = [
+                #     combineXandYTranslateUpper + ".output",
+                #     midUpperJointFinalRotation + ".output",
+                #     negatedcombineXandYTranslateUpper + ".output",
+                # ]
+                # lowerNodes = [
+                #     combineXandYTranslateLower + ".output",
+                #     midLowerJointFinalRotation + ".output",
+                #     combineXandYTranslateLowerNegated + ".output",
+                # ]
+                # angleMDVOutputs = [
+                #     divideCollisonAngle + ".outputX",
+                #     divideCollisonAngle + ".outputY",
+                #     divideCollisonAngle + ".outputZ",
+                # ]
+                # for jointU, jointL, i in zip(upperLidJoints, lowerLidJoints, range(3)):
+                #     lidJointRotationWithCollisionUpper = mc.createNode(
+                #         "animBlendNodeAdditiveDA",
+                #         n="%s_lidUpperJointXRotationWithCollision%s_ADA"
+                #         % (side, str(i).zfill(2)),
+                #     )
+                #     lidJointRotationWithCollisionLower = mc.createNode(
+                #         "animBlendNodeAdditiveDA",
+                #         n="%s_lidLowerJointXRotationWithCollision%s_ADA"
+                #         % (side, str(i).zfill(2)),
+                #     )
+                #     # For upper joints
+                #     mc.connectAttr(
+                #         angleMDVOutputs[i],
+                #         lidJointRotationWithCollisionUpper + ".weightA",
+                #     )
+                #     mc.connectAttr(
+                #         upperNodes[i], lidJointRotationWithCollisionUpper + ".inputB"
+                #     )
+                #     mc.setAttr(lidJointRotationWithCollisionUpper + ".inputA", -1)
+                #     mc.connectAttr(
+                #         lidJointRotationWithCollisionUpper + ".output", jointU + ".rx"
+                #     )
+                #     # For lower joints:
+                #     mc.connectAttr(
+                #         angleMDVOutputs[i],
+                #         lidJointRotationWithCollisionLower + ".weightA",
+                #     )
+                #     mc.connectAttr(
+                #         lowerNodes[i], lidJointRotationWithCollisionLower + ".inputB"
+                #     )
+                #     mc.setAttr(lidJointRotationWithCollisionLower + ".inputA", 1)
+                #     mc.connectAttr(
+                #         lidJointRotationWithCollisionLower + ".output", jointL + ".rx"
+                #     )
+
+            # Clamp node for positive angle values to account for lid collision (clamps Values 0-180):
+            lidJointsAnglePositiveClamp = mc.createNode(
                 "clamp", n="%s_lidJointsAnglePositive_CLP" % side
             )
-            mc.setAttr(anglePositiveClamp + ".maxR", 180)
-            mc.setAttr(anglePositiveClamp + ".maxG", 180)
-            mc.setAttr(anglePositiveClamp + ".maxB", 180)
-            mc.connectAttr(
-                innerJointsCollisonAngle + ".output", anglePositiveClamp + ".inputR"
+            lidJointsCollisionAngleHalved = mc.createNode(
+                "multiplyDivide", n="%s_lidJointsCollisionAngleHalved_CLP" % side
             )
-            mc.connectAttr(
-                differenceAfterTheBlink + ".output", anglePositiveClamp + ".inputG"
-            )
-            mc.connectAttr(
-                outerJointsCollisonAngle + ".output", anglePositiveClamp + ".inputB"
-            )
-            # Divide the collision angle to simulate resistance:
-            divideCollisonAngle = mc.createNode(
-                "multiplyDivide", n="%s_lidJointCollisonAngleHalved_MDV" % side
-            )
-            mc.setAttr(divideCollisonAngle + ".operation", 1)
-            mc.connectAttr(
-                anglePositiveClamp + ".outputR", divideCollisonAngle + ".input1X"
-            )
-            mc.connectAttr(
-                anglePositiveClamp + ".outputG", divideCollisonAngle + ".input1Y"
-            )
-            mc.connectAttr(
-                anglePositiveClamp + ".outputB", divideCollisonAngle + ".input1Z"
-            )
-            mc.setAttr(divideCollisonAngle + ".input2X", 0.5)
-            mc.setAttr(divideCollisonAngle + ".input2Y", 0.5)
-            mc.setAttr(divideCollisonAngle + ".input2Z", 0.5)
-            # Create final AnimBlend nodes to combine the rotation from the control and the collison angle:
-            upperNodes = [
-                combineXandYTranslateUpper + ".output",
-                midUpperJointFinalRotation + ".output",
-                negatedcombineXandYTranslateUpper + ".output",
-            ]
-            lowerNodes = [
-                combineXandYTranslateLower + ".output",
-                midLowerJointFinalRotation + ".output",
-                combineXandYTranslateLowerNegated + ".output",
-            ]
-            angleMDVOutputs = [
-                divideCollisonAngle + ".outputX",
-                divideCollisonAngle + ".outputY",
-                divideCollisonAngle + ".outputZ",
-            ]
-            for jointU, jointL, i in zip(upperLidJoints, lowerLidJoints, range(3)):
-                print(upperNodes[i], lowerNodes[i], angleMDVOutputs[i])
-                lidJointRotationWithCollisionUpper = mc.createNode(
-                    "animBlendNodeAdditiveDA",
-                    n="%s_lidUpperJointXRotationWithCollision%s_ADA"
-                    % (side, str(i).zfill(2)),
-                )
-                lidJointRotationWithCollisionLower = mc.createNode(
-                    "animBlendNodeAdditiveDA",
-                    n="%s_lidLowerJointXRotationWithCollision%s_ADA"
-                    % (side, str(i).zfill(2)),
-                )
-                # For upper joints
-                mc.connectAttr(
-                    angleMDVOutputs[i], lidJointRotationWithCollisionUpper + ".weightA"
-                )
-                mc.connectAttr(
-                    upperNodes[i], lidJointRotationWithCollisionUpper + ".inputB"
-                )
-                mc.setAttr(lidJointRotationWithCollisionUpper + ".inputA", -1)
-                mc.connectAttr(
-                    lidJointRotationWithCollisionUpper + ".output", jointU + ".rx"
-                )
-                # For lower joints:
-                mc.connectAttr(
-                    angleMDVOutputs[i], lidJointRotationWithCollisionLower + ".weightA"
-                )
-                mc.connectAttr(
-                    lowerNodes[i], lidJointRotationWithCollisionLower + ".inputB"
-                )
-                mc.setAttr(lidJointRotationWithCollisionLower + ".inputA", 1)
-                mc.connectAttr(
-                    lidJointRotationWithCollisionLower + ".output", jointL + ".rx"
-                )
+            for inpRGB, inpXYZ in zip("RGB", "XYZ"):
+                mc.setAttr(lidJointsAnglePositiveClamp + ".min%s" % inpRGB, 0)
+                mc.setAttr(lidJointsAnglePositiveClamp + ".max%s" % inpRGB, 180)
+                mc.setAttr(lidJointsCollisionAngleHalved + ".input2%s" % inpXYZ, 0.5)
 
 
 class HandComponent:
@@ -1305,8 +1553,8 @@ class HandComponent:
             # Clean up:
             if not DEBUG_MODE:
                 for ctl in ctlsList:
-                    lockAndHide(ctl, ".txyz")
-                    lockAndHide(ctl, ".sxyz")
+                    lockAndHide(ctl, attrList=[".txyz", ".sxyz"])
+
                 for jntChain in fingerJointChains:
                     mc.setAttr(jntChain[0] + ".v", 0)
 
@@ -1540,11 +1788,9 @@ def buildLimb(side, name, parent, skinJointsMessageAttr):
     if not DEBUG_MODE:
         mc.hide(blendChain, ikChain)
         for ctl in fkCtlsList:
-            lockAndHide(fkCtl, ".txyz")
-            lockAndHide(fkCtl, ".sxyz")
-        lockAndHide(ikBaseCtl, ".rxyz")
-        lockAndHide(ikBaseCtl, ".sxyz")
-        lockAndHide(ikCtl, ".sxyz")
+            lockAndHide(fkCtl, [".txyz", ".sxyz"])
+        lockAndHide(ikBaseCtl, [".rxyz", ".sxyz"])
+        lockAndHide(ikCtl, [".sxyz"])
 
     return (
         blendChain,
@@ -1914,10 +2160,8 @@ def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpnes
         colour=18 if side == "L" else 20,
     )
     if not DEBUG_MODE:
-        lockAndHide(upperCtl, ".rxyz")
-        lockAndHide(upperCtl, ".sxyz")
-        lockAndHide(lowerCtl, ".rxyz")
-        lockAndHide(lowerCtl, ".sxyz")
+        lockAndHide(upperCtl, [".rxyz", ".sxyz"])
+        lockAndHide(lowerCtl, [".rxyz", ".sxyz"])
 
     mc.parent(upperCtlGrp, lowerCtlGrp, "ctls_GRP")
     # Parent constrain
@@ -2182,12 +2426,23 @@ def createBindJoints(side, limb, nurbsSfs):
 def lockAndHide(
     node, attrList=[".tx", ".ty", ".tz", ".rx", ".ry", ".rz", ".sx", ".sy", ".sz", ".v"]
 ):
-    if attrList == ".txyz":
-        attrList = [".tx", ".ty", ".tz"]
-    elif attrList == ".rxyz":
-        attrList = [".rx", ".ry", ".rz"]
-    elif attrList == ".sxyz":
-        attrList = [".sx", ".sy", ".sz"]
+    attrList = attrList
+    if ".txyz" in attrList:
+        attrList.remove(".txyz")
+        attrList.append(".tx")
+        attrList.append(".ty")
+        attrList.append(".tz")
+
+    if ".rxyz" in attrList:
+        attrList.remove(".rxyz")
+        attrList.append(".rx")
+        attrList.append(".ry")
+        attrList.append(".rz")
+    if ".sxyz" in attrList:
+        attrList.remove(".sxyz")
+        attrList.append(".sx")
+        attrList.append(".sy")
+        attrList.append(".sz")
     for attr in attrList:
         mc.setAttr(node + attr, lock=True, k=False, channelBox=False)
 
@@ -2199,11 +2454,11 @@ def main():
         "C:\Users\Yana\Documents\maya\projectFolder\HPScripted\scenes\hp_body.ma", i=1
     )
     mc.file(
-        "C:\Users\Yana\Documents\maya\projectFolder\HPScripted\scenes\hp_guides.0002.ma",
+        "C:\Users\Yana\Documents\maya\projectFolder\HPScripted\scenes\hp_guides.ma",
         i=1,
     )
 
-    # Housekeeping setup:
+    # Housekeeping setup:q
     harryCtl, _, _ = buildControl("C", "harry", shapeCVs=cs.SQUARE_SHAPE_CVS)
     mc.scale(15, 15, 15, harryCtl + ".cv[*]")
     harryCtlSkinJoints = gen.addAttr(harryCtl, ln="skinJoints", at="message")
@@ -2214,8 +2469,8 @@ def main():
 
     # Build spine
     spine = SpineComponent(mc.ls("C_spine??_JNT"), "C_spine_CRV")
-    neck = HeadComponent(mc.ls("C_neck??_JNT"), mc.ls("C_neckWithTwist??_JNT"))
-    mouth = FaceComponent()
+    head = HeadComponent(mc.ls("C_neck??_JNT"), mc.ls("C_neckWithTwist??_JNT"))
+    face = FaceComponent()
 
     # Build leg FK ctls. IK chain, Handle and Ctls
     for side in "LR":
@@ -2282,7 +2537,7 @@ def main():
         buildBendyLimbs(side, "leg")
         # Clean up:
         if not DEBUG_MODE:
-            lockAndHide(kneePoleVectorCtl, ".rxyz")
+            lockAndHide(kneePoleVectorCtl, [".rxyz"])
 
         # Skin and import weights for shoes and socks
         sockSkinJoints = [
@@ -2377,7 +2632,7 @@ def main():
         buildBendyLimbs(side, "arm")
         # Clean up:
         if not DEBUG_MODE:
-            lockAndHide(elbowPoleVectorCtl, ".rxyz")
+            lockAndHide(elbowPoleVectorCtl, [".rxyz"])
 
     # Housekeeping:
     groups = mc.ls("*GRP")
@@ -2396,7 +2651,7 @@ def main():
     mc.reorderDeformers("wire1", skinCluster, body)
 
     mc.deformerWeights(
-        "body_skin_weights_01.xml",
+        "body_skin_weights_02.xml",
         path="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\sourceimages",
         deformer=skinCluster,
         im=1,
