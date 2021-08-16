@@ -64,3 +64,46 @@ def getVector(startPoint, endPoint):
     vecFromAToB = (om2.MVector(positionB) - om2.MVector(positionA)).normal()
 
     return vecFromAToB
+
+
+def extractTwist(twistingObject, staticParent, alignXwith="X"):
+    # Create a transform, parent and 0 out under the object for which twist info is sought
+    twistTransform = mc.createNode(
+        "transform",
+        n="%s%sTwistExtractionTransform_TRN" % (twistingObject[:-4], alignXwith),
+    )
+    mc.parent(twistTransform, twistingObject, r=1)
+    # Rotate so as to align the X axis of the twist transform with the axis of
+    # the object around which it twists, to ensure stable rotation:
+    if alignXwith == "Y":
+        mc.rotate(0, 0, 90, twistTransform)
+    elif alignXwith == "Z":
+        mc.rotate(0, -90, 0, twistTransform)
+    twistTransformDuplicate = mc.duplicate(twistTransform)[0]
+    twistTransformDuplicate = mc.rename(
+        twistTransformDuplicate, twistTransformDuplicate.replace("_TRN1", "Parent_TRN")
+    )
+    # Parent a duplicate of the transform under an object that will be unafected
+    # by any rotation of the twistingObject:
+    mc.parent(twistTransformDuplicate, staticParent)
+    # Multiply the matrix of the twist transform and the duplicate:
+    multMatrix = mc.createNode(
+        "multMatrix", n="%sinTheSpaceOfParent_MUM" % (twistTransform[:-4])
+    )
+    mc.connectAttr(twistTransform + ".worldMatrix[0]", multMatrix + ".matrixIn[0]")
+    mc.connectAttr(
+        twistTransformDuplicate + ".worldInverseMatrix[0]", multMatrix + ".matrixIn[1]"
+    )
+    # Decompose matrix node to get acces to the twist information obtained from
+    # the MultMatrix
+    decomposed = mc.createNode(
+        "decomposeMatrix", n="%sDecomposed_DCM" % multMatrix[0:-4]
+    )
+    mc.connectAttr(multMatrix + ".matrixSum", decomposed + ".inputMatrix")
+    # The value from the decomposed matrix is in Qaternion, needed in Euler
+    qte = mc.createNode("quatToEuler", n="%s_QTE" % twistTransform[:-4])
+    mc.connectAttr(decomposed + ".outputQuatX", qte + ".inputQuatX")
+    mc.connectAttr(decomposed + ".outputQuatW", qte + ".inputQuatW")
+
+    return qte + ".outputRotateX"
+

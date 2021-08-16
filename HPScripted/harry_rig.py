@@ -1,11 +1,11 @@
 from maya import cmds as mc
 from maya.api import OpenMaya as om2
 from ym_rigging.general import ctl_shapes as cs
-from ym_rigging.general import general as gen
+from ym_rigging.general import general as vs
 from ym_rigging.general import parameters as prm
 
 reload(cs)
-reload(gen)
+reload(vs)
 reload(prm)
 
 DEBUG_MODE = False
@@ -268,7 +268,7 @@ class FaceComponent:
         upperLipGrp = mc.group(upperLip, upperCurve, n="C_lipLower_GRP")
         lowerLipGrp = mc.group(lowerLip, lowerCurve, n="C_lipUpper_GRP")
         mc.parent(upperLipGrp, lowerLipGrp, "rig_GRP")
-        lipsOrientAttr = gen.addAttr(
+        lipsOrientAttr = vs.addAttr(
             "C_head_CTL",
             ln="lipsOrientationInfluence",
             at="float",
@@ -381,7 +381,7 @@ class FaceComponent:
                         guide=clusterHandle,
                     )
                     mc.scale(0.2, 0.2, 0.2, control + "Shape*.cv[*]")
-                    influenceAttr = gen.addAttr(
+                    influenceAttr = vs.addAttr(
                         control, ln="jawInfluence", at="float", min=0, max=1, k=1
                     )
                     mc.setAttr(influenceAttr, influenceValues[rowId - 1])
@@ -449,7 +449,7 @@ class FaceComponent:
             for cv in curveCVs:
                 position = mc.pointPosition(cv)
                 pt, u, v = mfnSurface.closestPoint(om2.MPoint(position))
-                follicle = gen.createFollicle(surface, parameterU=u, parameterV=v)
+                follicle = vs.createFollicle(surface, parameterU=u, parameterV=v)
                 follicle = mc.rename(
                     follicle,
                     "C_%sBind%s_FLC" % (name, str(curveCVs.index(cv)).zfill(2)),
@@ -653,7 +653,12 @@ class FaceComponent:
             mc.scale(2, 2, 2, eyeSystemCtl + "Shape*.cv[*]")
             mc.parent(eyeSystemGrp, "C_head_CTL")
             mc.parent(eyeJnt, eyeSystemCtl)
-            # Eyeballs:
+            # Extract twist of the eye in X(up/down), and Y(leftRight) in preparation for
+            # plugging it into the lid controls for fleshy eyelids:
+            eyeJointTwistInX = vs.extractTwist(eyeJnt, eyeSystemCtl)
+            eyeJointTwistInY = vs.extractTwist(eyeJnt, eyeSystemCtl, alignXwith="Y")
+
+            # Eyeball:
             # Rotation ctl:
             rotationCtl, rotationOfs, rotationGrp = buildControl(
                 side,
@@ -668,6 +673,19 @@ class FaceComponent:
             mc.parentConstraint(rotationCtl, eyeJnt)
             mc.parent(rotationGrp, eyeSystemCtl)
             lockAndHide(rotationCtl, attrList=[".txyz", ".sxyz"])
+            # Create a fleshiness exposed attribute on the eye rotation control
+            # which dictates the weight given to the extracted eye joint twist
+            # when it is fed to the lid joints rotation:
+            fleshinessAttr = vs.addAttr(
+                rotationCtl, ln="fleshiness", at="float", min=0, max=1, k=1, dv=0.3
+            )
+            # create a MDV node to turn the value negative for the right eye:
+            if side == "R":
+                fleshinessAttrNeg = mc.createNode(
+                    "multDoubleLinear", n="R_fleshinessNegated_MDV"
+                )
+                mc.connectAttr(fleshinessAttr, fleshinessAttrNeg + ".input1")
+                mc.setAttr(fleshinessAttrNeg + ".input2", -1)
             # Aim Eye control - one created for each side.
             # When building the left side a parent control is built used to move
             #  both aim controls simultaneously:
@@ -704,7 +722,7 @@ class FaceComponent:
             # Set correct orientation of the base eyelid joint using the vector going from 1st and Last CV on the lid for X
             # and the mid pont between the two cvs at 0.5 position of the upper and lower lid curves
             # Vectors constructed using points on the curves exctracted from the inner edge of the eyelid:
-            xVector = gen.getVector(lowerLidCRV + ".cv[0]", lowerLidCRV + ".cv[-1]")
+            xVector = vs.getVector(lowerLidCRV + ".cv[0]", lowerLidCRV + ".cv[-1]")
             innerCVUpper = mc.pointOnCurve(upperLidCRV, pr=0.25, p=True, top=True)
             midCVUpper = mc.pointOnCurve(upperLidCRV, pr=0.5, p=True, top=True)
             outerCVUpper = mc.pointOnCurve(upperLidCRV, pr=0.75, p=True, top=True)
@@ -744,7 +762,7 @@ class FaceComponent:
             mc.makeIdentity(baseGuideJoint, a=True)
             mc.parent(baseGuideJoint, eyeSystemCtl)
             # Get the angle between blink line and open eye:
-            blinkLineVector = gen.getVector(baseGuideJoint, guideTransform)
+            blinkLineVector = vs.getVector(baseGuideJoint, guideTransform)
             guideTransformOpenEye = mc.createNode(
                 "transform", name="%s_eyeOpenAimGuide_TRN" % side
             )
@@ -756,7 +774,7 @@ class FaceComponent:
                 midCVUpper[2],
                 guideTransformOpenEye,
             )
-            openLidVector = gen.getVector(baseGuideJoint, guideTransformOpenEye)
+            openLidVector = vs.getVector(baseGuideJoint, guideTransformOpenEye)
             # Angle between closed and open lid in radians:
             openLidAngle = om2.MVector.angle(blinkLineVector, openLidVector)
             openLidAngle = float(mc.convertUnit(openLidAngle, f="radian", t="degree"))
@@ -848,7 +866,6 @@ class FaceComponent:
                 mc.connectAttr(ctl + ".tx", translateXtoRotateY + ".weightA")
                 mc.connectAttr(translateXtoRotateY + ".output", cornerJnt + ".ry")
             # Create three base and three bind lid joints for upper and lower respectively
-            lidControls = []
             for lid in ["Upper", "Lower"]:
                 if lid == "Upper":
                     cvs = upperLidGuideCVs
@@ -871,7 +888,6 @@ class FaceComponent:
 
                 # Get radius of eye joint to use for setting .tz of the bind joint:
                 tzOfEyeBindJoint = (mc.getAttr(eyeJnt + ".radius")) * 0.5
-
                 # Create three pairs of joints for the respective lid by duplicating
                 # the base joint as created above. Position the bind joints at
                 # the respective positions as extracted from the lid curves,
@@ -930,7 +946,7 @@ class FaceComponent:
                     mc.rotate(0, 180, 0, grp, r=1)
                 # Create a Blink Attr on the upper lid control:
                 if lid == "Upper":
-                    blinkAttr = gen.addAttr(
+                    blinkAttr = vs.addAttr(
                         ctl, ln="blink", at="float", min=0, max=10, k=1
                     )
                     blinkRatioNode = mc.createNode(
@@ -998,6 +1014,24 @@ class FaceComponent:
                     )
                     mc.setAttr(lidOuterJointsAngleBetween + ".weightB", -1)
 
+                # Fleshiness: Create ADA nodes to add the rotation of the eye to
+                # the rotation of the lid joints:
+                # The twist around the X axis to be combined with the control translation in Y
+                # NOTE: The rotation around the Y axis can be directly plugged
+                # into the input of the ADA used for remapping ctl X translation into rotation.
+                twistExtractionCombinedWithY = mc.createNode(
+                    "animBlendNodeAdditiveDA",
+                    n="%s_eyelid%sFleshinessEyeRotationAndLidYTranslation_ADA"
+                    % (side, lid),
+                )
+                mc.connectAttr(
+                    eyeJointTwistInX, twistExtractionCombinedWithY + ".inputA"
+                )
+                mc.connectAttr(
+                    fleshinessAttr, twistExtractionCombinedWithY + ".weightA"
+                )
+                mc.setAttr(twistExtractionCombinedWithY + ".weightB", 1)
+
                 # Create animblend Nodes that use the translate X and Y of the lid control to drive rotation:
                 lidTranslateYtoRotation = mc.createNode(
                     "animBlendNodeAdditiveDA",
@@ -1006,9 +1040,14 @@ class FaceComponent:
                 mc.connectAttr(ctl + ".ty", lidTranslateYtoRotation + ".weightA")
                 mc.setAttr(lidTranslateYtoRotation + ".inputA", -15)
                 mc.setAttr(lidTranslateYtoRotation + ".inputB", openLidAngle)
-                # conect to the node calculating the angle between mid joints:
+                # Connect to the fleshiness node:
                 mc.connectAttr(
                     lidTranslateYtoRotation + ".output",
+                    twistExtractionCombinedWithY + ".inputB",
+                )
+                # conect to the node calculating the angle between mid joints:
+                mc.connectAttr(
+                    twistExtractionCombinedWithY + ".output",
                     midJointsAngleBetween + nodesInput,
                 )
 
@@ -1021,7 +1060,14 @@ class FaceComponent:
                     mc.setAttr(lidTranslateXtoRotation + ".inputA", 5)
                 else:
                     mc.setAttr(lidTranslateXtoRotation + ".inputA", -5)
-
+                mc.connectAttr(eyeJointTwistInY, lidTranslateXtoRotation + ".inputB")
+                if side == "L":
+                    mc.connectAttr(fleshinessAttr, lidTranslateXtoRotation + ".weightB")
+                else:
+                    mc.connectAttr(
+                        fleshinessAttrNeg + ".output",
+                        lidTranslateXtoRotation + ".weightB",
+                    )
                 # negating the tX driven rotation to account for inner/outer
                 # joints of the lid to rotate in the oposite direction:
 
@@ -1041,7 +1087,7 @@ class FaceComponent:
                     n="%s_lid%sMidJointFinalRotation_ADA" % (side, lid),
                 )
                 mc.connectAttr(
-                    lidTranslateYtoRotation + ".output",
+                    twistExtractionCombinedWithY + ".output",
                     midJointFinalRotation + ".inputA",
                 )
                 if lid == "Upper":
@@ -1203,6 +1249,15 @@ class FaceComponent:
                         jointRotationWithCollision + ".output",
                         "%s_lid%s0%s_JNT.rx" % (side, lid, str(i)),
                     )
+            if DEBUG_MODE == False:
+                mc.delete(upperLidCRV)
+                mc.delete(lowerLidCRV)
+                mc.hide(eyeJnt)
+                lidJnts = mc.ls("*lid*JNT")
+                for jnt in lidJnts:
+                    mc.hide(jnt)
+                mc.delete(guideTransform)
+                mc.delete(guideTransformOpenEye)
 
 
 class HandComponent:
@@ -1303,7 +1358,7 @@ def curlStretch(side, name, ctlsOfsList):
     mc.rotate(0, 90, 0, curlCtl + ".cv[*]", ws=1, r=1)
     mc.parent(curlCtllGrp, "%s_handBase_TRN" % side)
     # Create attribute and connect it to joints:
-    curlAttr = gen.addAttr(curlCtl, ln="curl", at="float", min=-10, max=10, k=1)
+    curlAttr = vs.addAttr(curlCtl, ln="curl", at="float", min=-10, max=10, k=1)
     positiveNegativeNode = mc.createNode(
         "condition", name="%s_%sPositiveOrNegative_CDT" % (side, name)
     )
@@ -1672,7 +1727,7 @@ def createConnectIkFkSwitch(
 
     mc.parentConstraint(parentJoint, ikFkSwitchGrp, sr=["x", "y", "z"], mo=1)
     # Create the switch attribute, where 0=IK and 1=FK
-    ikFkSwitchAttr = gen.addAttr(
+    ikFkSwitchAttr = vs.addAttr(
         ikFkSwitchCtl, at="float", k=1, ln="ikFkSwitch", max=1, min=0, dv=0
     )
     # Reverse IK FK switch attribute's value:
@@ -1712,18 +1767,18 @@ def createConnectIkFkSwitch(
 
 def footRollSetup(side, footIkCtl):
     # Setup foot roll with  Ball Straight and Toe Lift attributes exposed:
-    rollAttr = gen.addAttr(footIkCtl, ln="roll", at="doubleAngle", k=1)
-    toeLiftAttr = gen.addAttr(
+    rollAttr = vs.addAttr(footIkCtl, ln="roll", at="doubleAngle", k=1)
+    toeLiftAttr = vs.addAttr(
         footIkCtl, ln="toeLift", at="doubleAngle", k=1, dv=0.5235988
     )
-    ballStraightAttr = gen.addAttr(
+    ballStraightAttr = vs.addAttr(
         footIkCtl, ln="ballStraight", at="doubleAngle", k=1, dv=1.047198
     )
     ikCtlChildren = mc.listRelatives(footIkCtl, c=1)
     ikCtlChildren.remove(footIkCtl + "Shape")
     ikCtlChildren = mc.group(ikCtlChildren, n="%s_footIkh_GRP" % side)
     # Banking attr exposed:
-    bankAttr = gen.addAttr(footIkCtl, ln="Bank", at="float", k=1, min=-10, max=10)
+    bankAttr = vs.addAttr(footIkCtl, ln="Bank", at="float", k=1, min=-10, max=10)
     # Assigning names to pivots from the guides file
     bankOutLtr = "%s_footBankOut_LTR" % side
     bankInLtr = "%s_footBankIn_LTR" % side
@@ -1821,13 +1876,13 @@ def footRollSetup(side, footIkCtl):
 
 
 def addToSkinJoints(joint, skinJointsMessageAttr="C_harry_CTL.skinJoints"):
-    jointMessageAttr = gen.addAttr(joint, ln="skinJoint", at="message")
+    jointMessageAttr = vs.addAttr(joint, ln="skinJoint", at="message")
     mc.connectAttr(skinJointsMessageAttr, jointMessageAttr)
 
 
 def orientToParent(parentCtl, drivenCtl, drivenGrp, worldControl="C_harry_CTL"):
     # Create an attribute for the control
-    orientAttr = gen.addAttr(
+    orientAttr = vs.addAttr(
         drivenCtl, at="float", ln="orientToParent", k=1, min=0, max=1
     )
     # create a zeroed out transform at the parent location
@@ -2140,7 +2195,7 @@ def createBindJoints(side, limb, nurbsSfs):
         paramUList = prm.PARAM_U_LEGS
 
     for paramU in paramUList:
-        follicle = gen.createFollicle(nurbsSfs, parameterU=paramU, parameterV=0.5)
+        follicle = vs.createFollicle(nurbsSfs, parameterU=paramU, parameterV=0.5)
         follicle = mc.rename(
             follicle,
             "%s_%sBind%s_FLC" % (side, limb, str(paramUList.index(paramU)).zfill(2)),
@@ -2198,7 +2253,7 @@ def main():
     # Housekeeping setup:q
     harryCtl, _, _ = buildControl("C", "harry", shapeCVs=cs.SQUARE_SHAPE_CVS)
     mc.scale(15, 15, 15, harryCtl + ".cv[*]")
-    harryCtlSkinJoints = gen.addAttr(harryCtl, ln="skinJoints", at="message")
+    harryCtlSkinJoints = vs.addAttr(harryCtl, ln="skinJoints", at="message")
     ctlsGrp = mc.group(em=1)
     ctlsGrp = mc.rename(ctlsGrp, "ctls_GRP")
     rigGrp = mc.group(em=1)
@@ -2231,7 +2286,7 @@ def main():
             shapeCVs=cs.DIAMOND_SHAPE_CVS,
             colour=18 if side == "L" else 20,
         )
-        kneePoleVectorPos = gen.getIkhPoleVecPos(footIkHandle)
+        kneePoleVectorPos = vs.getIkhPoleVecPos(footIkHandle)
         mc.scale(4, 4, 4, kneePoleVectorCtl + ".cv[*]")
         mc.move(
             kneePoleVectorPos.x,
@@ -2329,7 +2384,7 @@ def main():
             shapeCVs=cs.DIAMOND_SHAPE_CVS,
             colour=18 if side == "L" else 20,
         )
-        elbowPoleVectorPos = gen.getIkhPoleVecPos(wristIkHandle)
+        elbowPoleVectorPos = vs.getIkhPoleVecPos(wristIkHandle)
         mc.scale(4, 4, 4, elbowPoleVectorCtl + ".cv[*]")
         mc.move(
             elbowPoleVectorPos.x,
@@ -2406,7 +2461,7 @@ def main():
     mc.setAttr("C_geometry_GRP.inheritsTransform", 0)
     mc.parent("C_geometry_GRP", harryCtl)
     # Make geometry unselectble:
-    referenceGeoAttr = gen.addAttr(
+    referenceGeoAttr = vs.addAttr(
         harryCtl, ln="referenceGeo", at="long", min=0, max=1, dv=1, k=1
     )
     mc.connectAttr(referenceGeoAttr, "C_geometry_GRP.overrideEnabled")
@@ -2415,7 +2470,7 @@ def main():
     mc.parent("C_root_GRP", harryCtl)
     mc.parent("C_spine_CRV", harryCtl)
     mc.setAttr("C_spine_CRV.inheritsTransform", 0)
-    mc.viewFit("L_lidUpper_CRV")
+    mc.viewFit("C_head_CTL")
 
 
 main()
