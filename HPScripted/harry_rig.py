@@ -225,7 +225,6 @@ class HeadComponent:
         mc.connectAttr(jointStretch + ".output.outputX", jointChainTwist[-1] + ".tx")
         # Orient to parent/world
         orientToParent("C_chest_CTL", "C_head_CTL", "C_head_GRP")
-
         if not DEBUG_MODE:
             lockAndHide(headCtl, attrList=[".sxyz"])
             lockAndHide(neckBaseCtl, attrList=[".sxyz"])
@@ -239,6 +238,60 @@ class FaceComponent:
         self.buildLips()
         self.buildEyebrows()
         self.buildEyes()
+        self.buildTongue()
+        self.buildTeeth()
+
+    def buildTongue(self, parent="C_jaw_CTL"):
+        # create an on/off attribute that controls the visibility of controls for the
+        # tongue and teeth from the jaw control:
+        visibilityAttr = vs.addAttr(
+            "C_jaw_CTL",
+            ln="mouthCtlsVisibility",
+            sn="mcv",
+            at="long",
+            min=0,
+            max=1,
+            dv=1,
+            k=1,
+        )
+        # Create an empty transform for the tongue rig, select the tongue joints
+        # and build and FK ctl chain for it. Parent under the jaw.
+        tongueGroup = mc.createNode("transform", n="C_tongue_GRP")
+        tongueJoints = mc.ls("C_tongue??_JNT")
+        mc.parent(tongueJoints[0], tongueGroup)
+        mc.parent(tongueGroup, parent)
+        parent = tongueGroup
+        for i, joint in zip(range(3), tongueJoints[0:-1]):
+            ctl, ofs, grp = buildControl("C", "tongue0%s" % str(i), joint)
+            mc.rotate(0, 90, 0, ctl + ".cv[*]")
+            mc.scale(1, 1.5, 3.5, ctl + ".cv[*]")
+            mc.parentConstraint(ctl, joint, mo=0)
+            mc.connectAttr(visibilityAttr, ctl + ".v")
+            mc.parent(grp, parent)
+            parent = ctl
+            if DEBUG_MODE == False:
+                lockAndHide(ctl, [".txyz", ".sxyz", ".v"])
+
+        if DEBUG_MODE == False:
+            mc.setAttr(tongueJoints[0] + ".v", 0)
+
+    def buildTeeth(self):
+        # create a simple translation/rotation control for the upper teet and joints
+        for side in ["Upper", "Lower"]:
+            jnt = "C_teeth%s_JNT" % side
+            ctl, ofs, grp = buildControl("C", "teeth%s" % side, guide=jnt)
+            mc.rotate(90, 0, -90, ctl + ".cv[*]")
+            mc.scale(0, 1.6, 1, ctl + ".cv[*]")
+            mc.parent("C_teeth%s_JNT" % side, ctl)
+            mc.connectAttr("C_jaw_CTL.mcv", ctl + ".v")
+            if side == "Upper":
+                mc.parent(grp, "C_head_CTL")
+            else:
+                mc.parent(grp, "C_jaw_CTL")
+
+            if DEBUG_MODE == False:
+                mc.setAttr(jnt + ".v", 0)
+                lockAndHide(ctl, [".sxyz", ".v"])
 
     def buildLips(self):
         # Hierarchy:
@@ -634,6 +687,12 @@ class FaceComponent:
             upperLidCRV = "%s_lidUpper_CRV" % side
             lowerLidCRV = "%s_lidLower_CRV" % side
             eyeJnt = "%s_eye_JNT" % side
+            # Pupil joint which will be controlled by an attribute on the eye rotation ctl:
+            pupilJnt = mc.duplicate(eyeJnt)[0]
+            pupilJnt = mc.rename(pupilJnt, pupilJnt.replace("_JNT1", "PupilSize_JNT"))
+            mc.parent(pupilJnt, eyeJnt)
+            mc.move(2, pupilJnt, z=1, r=1)
+            mc.setAttr(pupilJnt + ".radius", 0.5)
             eyeSkinning = mc.skinCluster(eyeJnt, "%s_ball_PLY" % side, tsb=1)[0]
             # Eye system ctl:
             eyeSystemCtl, _, eyeSystemGrp = buildControl(
@@ -672,6 +731,21 @@ class FaceComponent:
             mc.scale(2, 2, 2, rotationCtl + "Shape*.cv[*]", ws=1, r=1)
             mc.parentConstraint(rotationCtl, eyeJnt)
             mc.parent(rotationGrp, eyeSystemCtl)
+            # Parent the pupil joint under the rotation Ctl:
+            mc.parent(pupilJnt, rotationCtl)
+            pupilSizeAttr = vs.addAttr(
+                rotationCtl, ln="pupilDilation", at="float", min=-1, max=1, dv=0, k=1
+            )
+            # Plug the output of the pupilSizeAttr into a MDL which in turn drives the scale of the pupil joint:
+            pupilSizeMDL = mc.createNode("multDoubleLinear", n="%s_eyePupilSize_MDV")
+            mc.setAttr(pupilSizeMDL + ".input1", 2)
+            mc.connectAttr(pupilSizeAttr, pupilSizeMDL + ".input2")
+            pupilSizeADL = mc.createNode("addDoubleLinear", n="%s_eyePupilSize_ADL")
+            mc.setAttr(pupilSizeADL + ".input1", 1)
+            mc.connectAttr(pupilSizeMDL + ".output", pupilSizeADL + ".input2")
+            for v in "xy":
+                mc.connectAttr(pupilSizeADL + ".output", pupilJnt + ".s%s" % v)
+
             lockAndHide(rotationCtl, attrList=[".txyz", ".sxyz"])
             # Create a fleshiness exposed attribute on the eye rotation control
             # which dictates the weight given to the extracted eye joint twist
@@ -696,7 +770,7 @@ class FaceComponent:
                 mc.move(0, 20, aimMaskGrp, xz=1, ws=1)
                 mc.rotate(90, aimMaskCtl + "Shape*.cv[*]", ws=1, r=1)
                 mc.scale(4, 3, 3, aimMaskCtl + "Shape*.cv[*]", ws=1, r=1)
-                mc.parent(aimMaskGrp, eyeSystemCtl)
+                mc.parent(aimMaskGrp, "C_head_CTL")
             # Create an aim control for each eye, parent it under the aim controls
             # mask and create an aim constraint between the eye control and the
             # rotation control's offset transform.
@@ -722,7 +796,15 @@ class FaceComponent:
             # Set correct orientation of the base eyelid joint using the vector going from 1st and Last CV on the lid for X
             # and the mid pont between the two cvs at 0.5 position of the upper and lower lid curves
             # Vectors constructed using points on the curves exctracted from the inner edge of the eyelid:
-            xVector = vs.getVector(lowerLidCRV + ".cv[0]", lowerLidCRV + ".cv[-1]")
+            numCVsLowerLidCrv = len(mc.ls(lowerLidCRV + ".cv[*]", fl=1))
+            if side == "L":
+                xVector = vs.getVector(
+                    lowerLidCRV + ".cv[0]", lowerLidCRV + ".cv[%i]" % numCVsLowerLidCrv
+                )
+            else:
+                xVector = vs.getVector(
+                    lowerLidCRV + ".cv[%i]" % numCVsLowerLidCrv, lowerLidCRV + ".cv[0]"
+                )
             innerCVUpper = mc.pointOnCurve(upperLidCRV, pr=0.25, p=True, top=True)
             midCVUpper = mc.pointOnCurve(upperLidCRV, pr=0.5, p=True, top=True)
             outerCVUpper = mc.pointOnCurve(upperLidCRV, pr=0.75, p=True, top=True)
@@ -836,14 +918,14 @@ class FaceComponent:
                 )
                 if side == "L":
                     if corner == "Inner":
-                        mc.rotate(0, 0, -35, ctl + ".cv[*]", os=1)
+                        mc.rotate(0, 0, 90, ctl + ".cv[*]", os=1)
                     else:
-                        mc.rotate(0, 0, 35, ctl + ".cv[*]", os=1)
+                        mc.rotate(0, 0, -90, ctl + ".cv[*]", os=1)
                 else:
                     if corner == "Inner":
-                        mc.rotate(0, 0, 35, ctl + ".cv[*]", os=1)
+                        mc.rotate(0, 0, -90, ctl + ".cv[*]", os=1)
                     else:
-                        mc.rotate(0, 0, -35, ctl + ".cv[*]", os=1)
+                        mc.rotate(0, 0, 90, ctl + ".cv[*]", os=1)
 
                 mc.scale(0.5, 0.5, 0.5, ctl + ".cv[*]")
                 mc.move(0, 0, 1, ctl + ".cv[*]", r=1)
@@ -1438,7 +1520,7 @@ def buildLimb(side, name, parent, skinJointsMessageAttr):
     ikHandle, ikCtl, ikCtlGrp, ikBaseCtl = None, None, None, None
 
     for jntId in range(len(blendChain) - 1):
-        if jntId == 0:
+        if name == "arm" and jntId == 0:
             fkCtl, fkCtlOfs, fkCtlGrp = buildControl(
                 side,
                 "%s%sFk" % (name, str(jntId).zfill(2)),
@@ -1448,18 +1530,16 @@ def buildLimb(side, name, parent, skinJointsMessageAttr):
                 colour=18 if side == "L" else 20,
             )
         else:
-
             fkCtl, fkCtlOfs, fkCtlGrp = buildControl(
                 side,
                 "%s%sFk" % (name, str(jntId).zfill(2)),
                 blendChain[jntId],
                 colour=18 if side == "L" else 20,
             )
-        # Clean up attribute visibility:
-        if prevFkCtlGrp is not None:
-            mc.parent(fkCtlGrp, prevFkCtl)
-        else:
+        if prevFkCtlGrp is None:
             mc.parent(fkCtlGrp, parent)
+        else:
+            mc.parent(fkCtlGrp, prevFkCtl)
 
         fkCtlsList.append(fkCtl)
         fkCtlsOfsList.append(fkCtlOfs)
@@ -1505,7 +1585,8 @@ def buildLimb(side, name, parent, skinJointsMessageAttr):
 
     limbGrp = mc.group(blendChain[0], ikChain[0])
     limbGrp = mc.rename(limbGrp, "%s_%s_GRP" % (side, name))
-    mc.parent(limbGrp, fkCtlsList[0])
+    mc.parent(fkCtlsList[0][0:-4] + "_GRP", limbGrp)
+    mc.parent(limbGrp, parent)
 
     # Create IK ctl and handle for the leg:
     if name == "leg":
@@ -1529,6 +1610,8 @@ def buildLimb(side, name, parent, skinJointsMessageAttr):
         )
         mc.scale(6, 6, 6, ikCtl + ".cv[*]")
         mc.parent(ikChain[0], ikBaseCtl)
+        # Create a spaceSwitch for the leg Ik ctl:
+        createSpaces(ikCtl, spaces=["C_world_LOC", "C_root_CTL", "C_hips_CTL"])
         # Create IK handle and parent to IK control:
         ikHandle, _ = mc.ikHandle(
             sj="%s_leg00Ik_JNT" % side, ee="%s_leg02Ik_JNT" % side, sol="ikRPsolver"
@@ -1561,7 +1644,18 @@ def buildLimb(side, name, parent, skinJointsMessageAttr):
         )
         mc.scale(6, 6, 6, ikCtl + ".cv[*]")
         mc.rotate(0, 0, 90, ikCtl + ".cv[*]", r=1)
-
+        # Create a space swith to root, hip, chest, head, clavicle:
+        createSpaces(
+            ikCtl,
+            spaces=[
+                "C_world_LOC",
+                "C_root_CTL",
+                "C_hips_CTL",
+                "C_chest_CTL",
+                "C_head_CTL",
+                "%s_arm00Fk_CTL" % side,
+            ],
+        )
         # Create IK handle and parent to IK control:
         ikHandle, _ = mc.ikHandle(
             sj="%s_arm01Ik_JNT" % side, ee="%s_arm03Ik_JNT" % side, sol="ikRPsolver"
@@ -2176,9 +2270,32 @@ def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpnes
             mc.setAttr(clusterHandle + ".visibility", 0)
 
     createBindJoints(side, limb, nurbsSfs)
+    limbHalfTwist(side, limb)
 
     if DEBUG_MODE == False:
         mc.setAttr(nurbsSfs + ".v", 0)
+
+
+def limbHalfTwist(side, limb):
+    if limb == "arm":
+        twistingJoint = "%s_arm03_JNT" % side
+        staticParent = "%s_arm02_JNT" % side
+        alignWith = "X"
+        halfValue = 0.5
+    else:
+        twistingJoint = "%s_leg02_JNT" % side
+        staticParent = "%s_leg01_JNT" % side
+        alignWith = "Y"
+        halfValue = -0.5
+
+    endJointTwist = vs.extractTwist(twistingJoint, staticParent, alignWith)
+    # Plug this value of rotation into an ADA to half the rotation value:
+    halfRotation = mc.createNode(
+        "animBlendNodeAdditiveDA", n="%s_%slowerJointHalvedTwist_ADA" % (side, limb)
+    )
+    mc.connectAttr(endJointTwist, halfRotation + ".inputA")
+    mc.setAttr(halfRotation + ".weightA", halfValue)
+    mc.connectAttr(halfRotation + ".output", "%s_%sLower_OFS.rx" % (side, limb))
 
 
 def createBindJoints(side, limb, nurbsSfs):
@@ -2239,6 +2356,108 @@ def lockAndHide(
         mc.setAttr(node + attr, lock=True, k=False, channelBox=False)
 
 
+def blendShapesSetup(poly):
+    blendShapeDef = mc.blendShape(
+        poly,
+        n=poly[:-4] + "_BLS",
+        ip="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\shapes\HP_blendShapes.shp",
+    )[0]
+    for side in "LR":
+        ctl, ofs, grp = buildControl(
+            side,
+            "blendShape",
+            guide="%s_lipCorner_CTL" % side,
+            shapeCVs=cs.BLEND_SHAPES_CVS,
+        )
+        if side == "L":
+            mc.move(5, grp, x=1)
+        else:
+            mc.move(-5, grp, x=1)
+            mc.scale(-1, grp, x=1)
+        mc.rotate(90, ctl + ".cv[*]", x=1)
+        mc.move(2, grp, z=1, r=1)
+        mc.scale(0.25, 0.25, 0.25, ctl + ".cv[*]")
+        mc.parent(grp, "C_head_CTL")
+
+        # create an MDV node to normalize the x/y values to 0to1 which I can use to drive blend shapes:
+        normalize0to1 = mc.createNode(
+            "multiplyDivide", n="%s_blendShapesXYZNormalise0to1_MDV" % side
+        )
+        # MDV to turn the negative values into positive to drive the narrow and frown
+        negateNormalized = mc.createNode(
+            "multiplyDivide", n="%s_blendShapesNegatedValues_MDV" % side
+        )
+        clampPositive = mc.createNode(
+            "clamp", n="%s_blendShapesPositiveValues_CLP" % side
+        )
+        clampNegative = mc.createNode(
+            "clamp", n="%s_blendShapesNegtativeValues_CLP" % side
+        )
+
+        for v, y in zip("XYZ", "RGB"):
+            mc.setAttr(normalize0to1 + ".input2%s" % v, 0.2)
+            mc.setAttr(negateNormalized + ".input2%s" % v, -1)
+            for clamp in (clampPositive, clampNegative):
+                mc.setAttr(clamp + ".min%s" % y, 0)
+                mc.setAttr(clamp + ".max%s" % y, 1)
+        # Connect the CTL movement to the normalisation MDVs
+        mc.connectAttr(ctl + ".t", normalize0to1 + ".input1")
+        mc.connectAttr(normalize0to1 + ".output", negateNormalized + ".input1")
+
+        # Connect the positive normalised values to clamp:
+        mc.connectAttr(normalize0to1 + ".output", clampPositive + ".input")
+        mc.connectAttr(negateNormalized + ".output", clampNegative + ".input")
+
+        # Connect the clamped values to the blend shapes:
+
+        mc.connectAttr(clampPositive + ".outputR", blendShapeDef + ".%s_wide" % side)
+        mc.connectAttr(clampPositive + ".outputG", blendShapeDef + ".%s_smile" % side)
+        mc.connectAttr(clampNegative + ".outputR", blendShapeDef + ".%s_narrow" % side)
+        mc.connectAttr(clampNegative + ".outputG", blendShapeDef + ".%s_frown" % side)
+
+    # Jaw opening controlling the jaw open corrective:
+    jawOpen0to16 = mc.createNode(
+        "animBlendNodeAdditiveDA", n="C_jawCorrectiveNormalize0to1_ADA"
+    )
+    jawOpenClamp = mc.createNode("clamp", n="C_jawOpenBlendShape_CLP")
+    mc.setAttr(jawOpenClamp + ".minR", 0)
+    mc.setAttr(jawOpenClamp + ".maxR", 1)
+    mc.connectAttr("C_jaw_CTL.rotateZ", jawOpen0to16 + ".inputA")
+    mc.setAttr(jawOpen0to16 + ".weightA", -0.066)
+    mc.connectAttr(jawOpen0to16 + ".output", jawOpenClamp + ".inputR")
+    mc.connectAttr(jawOpenClamp + ".outputR", blendShapeDef + ".C_jawOpenCorrective")
+
+    return blendShapeDef
+
+
+def createSpaces(ctl, spaces=[]):
+    # This function takes a control and adds an enum Space attribute to it.
+    # Then goes through the list of objects to be used as spaces and creates a
+    # parent constraint with offset maintained for them,
+    # and uses a set driven key to space switch:
+    ofs = mc.listRelatives(ctl, p=1)[0]
+    names = ""
+    parConAttrs = []
+    for space in spaces:
+        # For the attribute
+        names += space[2:-4] + ":"
+        # Create parentConstraints to the offset of the control
+        parCon = mc.parentConstraint(space, ofs, mo=1)[0]
+        parConAttrs.append(parCon + "." + mc.listAttr(parCon, st=space + "*")[0])
+    spacesAttr = vs.addAttr(ctl, ln="spaceSwitch", at="enum", en=names, k=1)
+
+    for spaceId in range(len(spaces)):
+        for parConId in range(len(parConAttrs)):
+            if parConId == spaceId:
+                mc.setDrivenKeyframe(
+                    parConAttrs[parConId], cd=spacesAttr, dv=spaceId, v=1
+                )
+            else:
+                mc.setDrivenKeyframe(
+                    parConAttrs[parConId], cd=spacesAttr, dv=spaceId, v=0
+                )
+
+
 def main():
     # Create a new file and import model and guides
     mc.file(new=1, force=1)
@@ -2258,7 +2477,8 @@ def main():
     ctlsGrp = mc.rename(ctlsGrp, "ctls_GRP")
     rigGrp = mc.group(em=1)
     rigGrp = mc.rename(rigGrp, "rig_GRP")
-
+    world = "C_world_LOC"
+    mc.parent(world, rigGrp)
     # Build spine
     spine = SpineComponent(mc.ls("C_spine??_JNT"), "C_spine_CRV")
     head = HeadComponent(mc.ls("C_neck??_JNT"), mc.ls("C_neckWithTwist??_JNT"))
@@ -2295,7 +2515,9 @@ def main():
             kneePoleVectorGrp,
         )
         mc.poleVectorConstraint(kneePoleVectorCtl, footIkHandle)
-
+        createSpaces(
+            kneePoleVectorCtl, spaces=[world, "C_root_CTL", "C_hips_CTL", footIkCtl]
+        )
         ikCtlsGrp = mc.group(
             kneePoleVectorGrp, footIkCtlGrp, n="%s_legIkCtls_GRP" % side, w=1
         )
@@ -2393,6 +2615,19 @@ def main():
             elbowPoleVectorGrp,
         )
         mc.poleVectorConstraint(elbowPoleVectorCtl, wristIkHandle)
+        # Create spaces (same as wristIk + wristIK ctl):
+        createSpaces(
+            elbowPoleVectorCtl,
+            spaces=[
+                world,
+                "C_root_CTL",
+                "C_hips_CTL",
+                "C_chest_CTL",
+                "C_head_CTL",
+                "%s_arm00Fk_CTL" % side,
+                wristIkCtl,
+            ],
+        )
         # Place Ik ctls in hierarchy withing the CTLs group:
         ikCtlsGrp = mc.group(
             elbowPoleVectorGrp, wristIkCtlGrp, n="%s_armIkCtls_GRP" % side, w=1
@@ -2425,7 +2660,6 @@ def main():
         # Clean up:
         if not DEBUG_MODE:
             lockAndHide(elbowPoleVectorCtl, [".rxyz"])
-
     # Housekeeping:
     groups = mc.ls("*GRP")
     offsets = mc.ls("*OFS")
@@ -2437,10 +2671,8 @@ def main():
     # Basic skin geometry:
     skinJoints = mc.listConnections("C_harry_CTL.skinJoints")
     body = "C_body_PLY"
-    skinCluster = mc.skinCluster(skinJoints, body, tsb=1)[0]
+    skinCluster = mc.skinCluster(skinJoints, body, n=body[:-4] + "_SCD", tsb=1)[0]
     mc.setAttr(skinCluster + ".skinningMethod", 2)
-    # Ensuring deformers are in the correct order:
-    mc.reorderDeformers("wire1", skinCluster, body)
 
     mc.deformerWeights(
         "body_skin_weights_02.xml",
@@ -2450,6 +2682,12 @@ def main():
         method="index",
     )
     mc.skinCluster(skinCluster, e=1, forceNormalizeWeights=True)
+    blendShapes = blendShapesSetup(body)
+
+    # Ensuring deformers are in the correct order:
+    mc.reorderDeformers("wire1", skinCluster, body)
+    mc.reorderDeformers(skinCluster, blendShapes, body)
+
     # Skin gums, teeth, tongue:
     mc.skinCluster("C_head_JNT", "C_upperTeeth_PLY", tsb=1)
     mc.skinCluster("C_head_JNT", "C_upperGums_PLY", tsb=1)
