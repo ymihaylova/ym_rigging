@@ -1,7 +1,7 @@
 from maya import cmds as mc
 from maya.api import OpenMaya as om2
 from ym_rigging.general import ctl_shapes as cs
-from ym_rigging.general import general as vs
+from ym_rigging.general import various as vs
 from ym_rigging.general import parameters as prm
 
 reload(cs)
@@ -659,7 +659,7 @@ class FaceComponent:
         mc.setAttr(bodyWireDefNode + ".rotation", 0.2)
         mc.deformerWeights(
             "HP_body_wireWeights.xml",
-            path="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\scenes",
+            path="/Users/Yana/Documents/maya/projects/hp/V_2608/",
             deformer=bodyWireDefNode,
             im=1,
             method="index",
@@ -750,16 +750,21 @@ class FaceComponent:
             # Create a fleshiness exposed attribute on the eye rotation control
             # which dictates the weight given to the extracted eye joint twist
             # when it is fed to the lid joints rotation:
-            fleshinessAttr = vs.addAttr(
-                rotationCtl, ln="fleshiness", at="float", min=0, max=1, k=1, dv=0.3
+            fleshinessUpperAttr = vs.addAttr(
+                rotationCtl, ln="fleshinessUpperLid", at="float", min=0, max=1, k=1, dv=0.3
+            )
+            fleshinessLowerAttr = vs.addAttr(
+                rotationCtl, ln="fleshinessLowerLid", at="float", min=0, max=1, k=1, dv=0.2
             )
             # create a MDV node to turn the value negative for the right eye:
             if side == "R":
                 fleshinessAttrNeg = mc.createNode(
-                    "multDoubleLinear", n="R_fleshinessNegated_MDV"
+                    "multiplyDivide", n="R_fleshinessNegated_MDV"
                 )
-                mc.connectAttr(fleshinessAttr, fleshinessAttrNeg + ".input1")
-                mc.setAttr(fleshinessAttrNeg + ".input2", -1)
+                mc.connectAttr(fleshinessUpperAttr, fleshinessAttrNeg + ".input1X")
+                mc.setAttr(fleshinessAttrNeg + ".input2X", -1)
+                mc.connectAttr(fleshinessLowerAttr, fleshinessAttrNeg + ".input1Y")
+                mc.setAttr(fleshinessAttrNeg + ".input2Y", -1)
             # Aim Eye control - one created for each side.
             # When building the left side a parent control is built used to move
             #  both aim controls simultaneously:
@@ -1109,9 +1114,15 @@ class FaceComponent:
                 mc.connectAttr(
                     eyeJointTwistInX, twistExtractionCombinedWithY + ".inputA"
                 )
-                mc.connectAttr(
-                    fleshinessAttr, twistExtractionCombinedWithY + ".weightA"
-                )
+                if lid ==  "Upper":
+                    mc.connectAttr(
+                        fleshinessUpperAttr, twistExtractionCombinedWithY + ".weightA"
+                    )
+                else:
+                    mc.connectAttr(
+                        fleshinessLowerAttr, twistExtractionCombinedWithY + ".weightA"
+                    )
+
                 mc.setAttr(twistExtractionCombinedWithY + ".weightB", 1)
 
                 # Create animblend Nodes that use the translate X and Y of the lid control to drive rotation:
@@ -1140,16 +1151,24 @@ class FaceComponent:
                 mc.connectAttr(ctl + ".tx", lidTranslateXtoRotation + ".weightA")
                 if lid == "Upper":
                     mc.setAttr(lidTranslateXtoRotation + ".inputA", 5)
+                    if side == "L":
+                        mc.connectAttr(fleshinessUpperAttr, lidTranslateXtoRotation + ".weightB")
+                    else:
+                        mc.connectAttr(
+                            fleshinessAttrNeg + ".outputX",
+                            lidTranslateXtoRotation + ".weightB",
+                        )
                 else:
                     mc.setAttr(lidTranslateXtoRotation + ".inputA", -5)
+                    if side == "L":
+                        mc.connectAttr(fleshinessLowerAttr, lidTranslateXtoRotation + ".weightB")
+                    else:
+                        mc.connectAttr(
+                            fleshinessAttrNeg + ".outputY",
+                            lidTranslateXtoRotation + ".weightB",
+                        )
                 mc.connectAttr(eyeJointTwistInY, lidTranslateXtoRotation + ".inputB")
-                if side == "L":
-                    mc.connectAttr(fleshinessAttr, lidTranslateXtoRotation + ".weightB")
-                else:
-                    mc.connectAttr(
-                        fleshinessAttrNeg + ".output",
-                        lidTranslateXtoRotation + ".weightB",
-                    )
+
                 # negating the tX driven rotation to account for inner/outer
                 # joints of the lid to rotate in the oposite direction:
 
@@ -2206,7 +2225,7 @@ def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpnes
         rn=0,
         rsn=True,
         ch=0,
-        n="%s_%sSurfase_NRB" % (side, limb),
+        n="%s_%sSurface_NRB" % (side, limb),
         po=0,
     )[0]
     mc.delete(firstCurve, secondCurve, baseCurve)
@@ -2275,6 +2294,21 @@ def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpnes
     if DEBUG_MODE == False:
         mc.setAttr(nurbsSfs + ".v", 0)
 
+def sweaterDoubleRibbonSetup(curveUpper, curveLower, name):
+    c1 = curveUpper
+    c2 = curveLower 
+    nurbsSfs = mc.loft(
+        c1,
+        c2,
+        d=1,
+        u=1,
+        rn=0,
+        rsn=True,
+        ch=0,
+        n="C_%sSurface_NRB" % name,
+        po=0,
+    )[0]
+    mc.delete(c1, c2)    
 
 def limbHalfTwist(side, limb):
     if limb == "arm":
@@ -2360,7 +2394,7 @@ def blendShapesSetup(poly):
     blendShapeDef = mc.blendShape(
         poly,
         n=poly[:-4] + "_BLS",
-        ip="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\shapes\HP_blendShapes.shp",
+        ip="/Users/Yana/Documents/maya/projects/hp/V_2608/HP_blendShapes.shp",
     )[0]
     for side in "LR":
         ctl, ofs, grp = buildControl(
@@ -2369,10 +2403,12 @@ def blendShapesSetup(poly):
             guide="%s_lipCorner_CTL" % side,
             shapeCVs=cs.BLEND_SHAPES_CVS,
         )
+        mc.rotate(0, 0, 0, grp, ws=1)
         if side == "L":
-            mc.move(5, grp, x=1)
+            pass
+            # mc.move(5, grp, x=1)
         else:
-            mc.move(-5, grp, x=1)
+            # mc.move(-5, grp, x=1)
             mc.scale(-1, grp, x=1)
         mc.rotate(90, ctl + ".cv[*]", x=1)
         mc.move(2, grp, z=1, r=1)
@@ -2383,6 +2419,7 @@ def blendShapesSetup(poly):
         normalize0to1 = mc.createNode(
             "multiplyDivide", n="%s_blendShapesXYZNormalise0to1_MDV" % side
         )
+        mc.setAttr(normalize0to1 + ".operation", 2)
         # MDV to turn the negative values into positive to drive the narrow and frown
         negateNormalized = mc.createNode(
             "multiplyDivide", n="%s_blendShapesNegatedValues_MDV" % side
@@ -2394,12 +2431,15 @@ def blendShapesSetup(poly):
             "clamp", n="%s_blendShapesNegtativeValues_CLP" % side
         )
 
-        for v, y in zip("XYZ", "RGB"):
-            mc.setAttr(normalize0to1 + ".input2%s" % v, 0.2)
-            mc.setAttr(negateNormalized + ".input2%s" % v, -1)
+        for i, j in zip("XYZ", "RGB"):
+            if i == "X":
+                mc.setAttr(normalize0to1 + ".input2%s" % i, 1.793)
+            elif i == "Y":
+                mc.setAttr(normalize0to1 + ".input2%s" % i, 2.8)
+            mc.setAttr(negateNormalized + ".input2%s" % i, -1)
             for clamp in (clampPositive, clampNegative):
-                mc.setAttr(clamp + ".min%s" % y, 0)
-                mc.setAttr(clamp + ".max%s" % y, 1)
+                mc.setAttr(clamp + ".min%s" % j, 0)
+                mc.setAttr(clamp + ".max%s" % j, 1)
         # Connect the CTL movement to the normalisation MDVs
         mc.connectAttr(ctl + ".t", normalize0to1 + ".input1")
         mc.connectAttr(normalize0to1 + ".output", negateNormalized + ".input1")
@@ -2462,10 +2502,10 @@ def main():
     # Create a new file and import model and guides
     mc.file(new=1, force=1)
     mc.file(
-        "C:\Users\Yana\Documents\maya\projectFolder\HPScripted\scenes\hp_body.ma", i=1
+        "/Users/Yana/Documents/maya/projects/hp/V_2608/hp_body.ma", i=1
     )
     mc.file(
-        "C:\Users\Yana\Documents\maya\projectFolder\HPScripted\scenes\hp_guides.ma",
+        "/Users/Yana/Documents/maya/projects/hp/V_2608/hp_guides.ma",
         i=1,
     )
 
@@ -2567,16 +2607,16 @@ def main():
         skinClusterSock = mc.skinCluster(sockSkinJoints, sock, tsb=1)[0]
         skinClusterShoe = mc.skinCluster(shoeSkinJoints, shoe, tsb=1)[0]
         mc.deformerWeights(
-            "%s_sock_skinWeights.xml" % side,
-            path="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\scenes",
-            deformer=skinClusterSock,
+           "%s_sock_skinWeights.xml" % side,
+           path="/Users/Yana/Documents/maya/projects/hp/V_2608/",
+           deformer=skinClusterSock,
             im=1,
             method="index",
         )
-        # mc.skinCluster(skinClusterSock, e=1, forceNormalizeWeights=True)
+        mc.skinCluster(skinClusterSock, e=1, forceNormalizeWeights=True)
         mc.deformerWeights(
             "%s_shoe_skinWeights.xml" % side,
-            path="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\scenes",
+            path="/Users/Yana/Documents/maya/projects/hp/V_2608/",
             deformer=skinClusterShoe,
             im=1,
             method="index",
@@ -2660,6 +2700,7 @@ def main():
         # Clean up:
         if not DEBUG_MODE:
             lockAndHide(elbowPoleVectorCtl, [".rxyz"])
+    sweaterDoubleRibbonSetup("C_jumperUpper_CRV", "C_jumperLower_CRV", "sweater")
     # Housekeeping:
     groups = mc.ls("*GRP")
     offsets = mc.ls("*OFS")
@@ -2676,7 +2717,7 @@ def main():
 
     mc.deformerWeights(
         "body_skin_weights_02.xml",
-        path="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\sourceimages",
+        path="/Users/Yana/Documents/maya/projects/hp/V_2608/",
         deformer=skinCluster,
         im=1,
         method="index",
@@ -2684,7 +2725,7 @@ def main():
     mc.skinCluster(skinCluster, e=1, forceNormalizeWeights=True)
     blendShapes = blendShapesSetup(body)
 
-    # Ensuring deformers are in the correct order:
+    #Ensuring deformers are in the correct order:
     mc.reorderDeformers("wire1", skinCluster, body)
     mc.reorderDeformers(skinCluster, blendShapes, body)
 
