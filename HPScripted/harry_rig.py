@@ -331,7 +331,8 @@ class FaceComponent:
             k=1,
         )
         # Lip corner compound controls:
-        # Right corner
+        lipCornerControlOrientGuide = "L_lipCornerOrient_LOC"
+        # Left corner
         _, dummyCluster = mc.cluster(upperLip + ".cv[0][0:3]")
         leftLipCtl, leftLipOfs, leftLipGrp = buildControl(
             "L",
@@ -341,7 +342,9 @@ class FaceComponent:
             colour=18,
         )
         mc.delete(dummyCluster)
-        # Left corner:
+        mc.delete(mc.orientConstraint(lipCornerControlOrientGuide, leftLipGrp, mo=0))
+        lipCornerControlOrientGuide = "R_lipCornerOrient_LOC"
+        # Right corner:
         _, dummyCluster = mc.cluster(upperLip + ".cv[14][0:3]")
         rightLipCtl, rightLipOfs, rightLipGrp = buildControl(
             "R",
@@ -350,17 +353,22 @@ class FaceComponent:
             shapeCVs=cs.RECTANGLE_SHAPE_CVS,
             colour=18,
         )
+        mc.delete(mc.orientConstraint(lipCornerControlOrientGuide, rightLipGrp, mo=0))
         mc.delete(dummyCluster)
         for ctl in [rightLipCtl, leftLipCtl]:
             shape = ctl + ".cv[*]"
-            mc.rotate(90, 0, 90, shape, ws=1, r=1)
+            if ctl == rightLipCtl:
+                mc.rotate(90, 0, -61.7, shape, ws=1, r=1)
+            else:
+                mc.rotate(90, 0, 61.7, shape, ws=1, r=1)
+
             mc.move(0, 0, 2, shape, ws=1, r=1)
         for grp in [rightLipGrp, leftLipGrp]:
-            mc.delete(
-                mc.orientConstraint(
-                    "C_lipLowerOrientation_LOC", "C_lipUpperOrientation_LOC", grp, mo=0
-                )
-            )
+            # mc.delete(
+            #     mc.orientConstraint(
+            #         "C_lipLowerOrientation_LOC", "C_lipUpperOrientation_LOC", grp, mo=0
+            #     )
+            # )
             mc.parent(grp, lipsCtlsGrp)
         for ofs in [leftLipOfs, rightLipOfs]:
             mc.parentConstraint("C_head_CTL", jawJnt, ofs, mo=1)
@@ -517,7 +525,7 @@ class FaceComponent:
                     mc.parent(follicle, upperLipGrp)
                 else:
                     mc.parent(follicle, lowerLipGrp)
-                # Create a duplicate fpr each bind joint to manage orientation when moving lips:
+                # Create a duplicate for each bind joint to manage orientation when moving lips:
                 duplicate = mc.duplicate(bindJoint)[0]
                 duplicate = mc.rename(
                     duplicate, duplicate.replace("_JNT1", "Dupilicate_JNT")
@@ -659,7 +667,7 @@ class FaceComponent:
         mc.setAttr(bodyWireDefNode + ".rotation", 0.2)
         mc.deformerWeights(
             "HP_body_wireWeights.xml",
-            path="/Users/Yana/Documents/maya/projects/hp/V_2608/",
+            path="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\scenes",
             deformer=bodyWireDefNode,
             im=1,
             method="index",
@@ -751,10 +759,22 @@ class FaceComponent:
             # which dictates the weight given to the extracted eye joint twist
             # when it is fed to the lid joints rotation:
             fleshinessUpperAttr = vs.addAttr(
-                rotationCtl, ln="fleshinessUpperLid", at="float", min=0, max=1, k=1, dv=0.3
+                rotationCtl,
+                ln="fleshinessUpperLid",
+                at="float",
+                min=0,
+                max=1,
+                k=1,
+                dv=0.3,
             )
             fleshinessLowerAttr = vs.addAttr(
-                rotationCtl, ln="fleshinessLowerLid", at="float", min=0, max=1, k=1, dv=0.2
+                rotationCtl,
+                ln="fleshinessLowerLid",
+                at="float",
+                min=0,
+                max=1,
+                k=1,
+                dv=0.2,
             )
             # create a MDV node to turn the value negative for the right eye:
             if side == "R":
@@ -1114,7 +1134,7 @@ class FaceComponent:
                 mc.connectAttr(
                     eyeJointTwistInX, twistExtractionCombinedWithY + ".inputA"
                 )
-                if lid ==  "Upper":
+                if lid == "Upper":
                     mc.connectAttr(
                         fleshinessUpperAttr, twistExtractionCombinedWithY + ".weightA"
                     )
@@ -1152,7 +1172,9 @@ class FaceComponent:
                 if lid == "Upper":
                     mc.setAttr(lidTranslateXtoRotation + ".inputA", 5)
                     if side == "L":
-                        mc.connectAttr(fleshinessUpperAttr, lidTranslateXtoRotation + ".weightB")
+                        mc.connectAttr(
+                            fleshinessUpperAttr, lidTranslateXtoRotation + ".weightB"
+                        )
                     else:
                         mc.connectAttr(
                             fleshinessAttrNeg + ".outputX",
@@ -1161,7 +1183,9 @@ class FaceComponent:
                 else:
                     mc.setAttr(lidTranslateXtoRotation + ".inputA", -5)
                     if side == "L":
-                        mc.connectAttr(fleshinessLowerAttr, lidTranslateXtoRotation + ".weightB")
+                        mc.connectAttr(
+                            fleshinessLowerAttr, lidTranslateXtoRotation + ".weightB"
+                        )
                     else:
                         mc.connectAttr(
                             fleshinessAttrNeg + ".outputY",
@@ -2288,27 +2312,85 @@ def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpnes
         if DEBUG_MODE == False:
             mc.setAttr(clusterHandle + ".visibility", 0)
 
-    createBindJoints(side, limb, nurbsSfs)
+    # Create bind joints at the relevant parameters for each limb:
+    if limb == "arm":
+        paramUList = prm.PARAM_U_ARMS
+    else:
+        paramUList = prm.PARAM_U_LEGS
+    print(len(paramUList))
+    limbBindJoints = createBindJoints(
+        side,
+        limb,
+        nurbsSfs,
+        numFollicles=len(paramUList),
+        createJoints=True,
+        paramUList=paramUList,
+    )
+    print(limbBindJoints)
+    for joint in limbBindJoints:
+        addToSkinJoints(joint)
     limbHalfTwist(side, limb)
 
     if DEBUG_MODE == False:
         mc.setAttr(nurbsSfs + ".v", 0)
 
+
 def sweaterDoubleRibbonSetup(curveUpper, curveLower, name):
+    """Creates a two NURBS surfaces, the base one driven by the body skinning, 
+    and the second one driven by bind joints attached to the base one. Returns 
+    the bind joints fron the second NURBS in a list"""
+    sweaterCtlsGrp = mc.createNode("transform", n="C_sweaterControls_GRP")
+    mc.parent(sweaterCtlsGrp, "C_harry_CTL", r=1)
+    mc.setAttr(sweaterCtlsGrp + ".inheritsTransform", 0)
+
     c1 = curveUpper
-    c2 = curveLower 
-    nurbsSfs = mc.loft(
-        c1,
-        c2,
-        d=1,
-        u=1,
-        rn=0,
-        rsn=True,
-        ch=0,
-        n="C_%sSurface_NRB" % name,
-        po=0,
+    c2 = curveLower
+    nurbsSfsBase = mc.loft(
+        c1, c2, d=1, u=1, rn=0, rsn=True, ch=0, n="C_%sSurface_NRB" % name, po=0,
     )[0]
-    mc.delete(c1, c2)    
+    mc.delete(c1, c2)
+    nurbsSfsSecond = mc.duplicate(nurbsSfsBase)[0]
+    nurbsSfsSecond = mc.rename(
+        nurbsSfsSecond, nurbsSfsSecond.replace("_NRB1", "Second_NRB")
+    )
+    baseSurfaceSkinJoints = createBindJoints(
+        side="C",
+        name=name,
+        nurbsSfs=nurbsSfsBase,
+        numFollicles=12,
+        createControls=True,
+        createJoints=True,
+        parentNode=sweaterCtlsGrp,
+    )
+    # create a skin cluster on the base surface and copy the skin weights from the body to it.
+    baseSurfaceSkinning = mc.skinCluster(
+        mc.listConnections("C_harry_CTL.skinJoints"),
+        nurbsSfsBase,
+        n="C_baseSweaterSurface_SC",
+        tsb=1,
+    )[0]
+    mc.copySkinWeights(
+        ss="C_body_SCD", ds=baseSurfaceSkinning, ia=["closestJoint", "oneToOne"], nr=1,
+    )
+    # Create multiple bind joints onto the second surface to use as Bind Joints
+    # for the sweater. Use bind joints from the base surface to drive the
+    # deformation of the skinning surface:
+    mc.skinCluster(
+        baseSurfaceSkinJoints, nurbsSfsSecond, n="C_sweaterSecondSurface_SC", tsb=1
+    )
+
+    secondSurfaceBindJoints = createBindJoints(
+        side="C",
+        name=name + "Bind",
+        nurbsSfs=nurbsSfsSecond,
+        numFollicles=20,
+        createJoints=True,
+    )
+
+    mc.parent(nurbsSfsBase, nurbsSfsSecond, "rig_GRP")
+
+    return secondSurfaceBindJoints
+
 
 def limbHalfTwist(side, limb):
     if limb == "arm":
@@ -2332,38 +2414,68 @@ def limbHalfTwist(side, limb):
     mc.connectAttr(halfRotation + ".output", "%s_%sLower_OFS.rx" % (side, limb))
 
 
-def createBindJoints(side, limb, nurbsSfs):
-    grp = mc.createNode("transform", n="%s_%sBindFlcJoint_GRP" % (side, limb))
-    lockAndHide(grp)
-
-    mc.parent(grp, "rig_GRP")
-    paramUList = []
+def createBindJoints(
+    side,
+    name,
+    nurbsSfs,
+    numFollicles,
+    createControls=False,
+    createJoints=False,
+    paramUList=None,
+    parentNode="rig_GRP",
+):
+    """Creates follicles on a given nurbs surface, under which controls, joints or both can be created and parented"""
+    bindJointGrp = mc.createNode("transform", n="%s_%sBindFlcJoint_GRP" % (side, name))
+    lockAndHide(bindJointGrp)
+    if parentNode != None:
+        mc.parent(bindJointGrp, parentNode)
+    paramUList = paramUList
     follicle = None
     folliclesList = []
-    if limb == "arm":
-        paramUList = prm.PARAM_U_ARMS
-    else:
-        paramUList = prm.PARAM_U_LEGS
-
-    for paramU in paramUList:
-        follicle = vs.createFollicle(nurbsSfs, parameterU=paramU, parameterV=0.5)
+    jointParent = None
+    jointList = []
+    paramUIncrement = 1 / (numFollicles * 1.00)
+    paramUFollicle = 1 / (numFollicles * 2.00)
+    print(numFollicles)
+    # Create a follicle at a specified parameter U if given, or uniformly.
+    for follicleId in range(numFollicles):
+        if paramUList is not None:
+            follicle = vs.createFollicle(
+                nurbsSfs, parameterU=paramUList[follicleId], parameterV=0.5
+            )
+        else:
+            follicle = vs.createFollicle(
+                nurbsSfs, parameterU=paramUFollicle, parameterV=0.5
+            )
+            print(paramUFollicle)
+            paramUFollicle += paramUIncrement
         follicle = mc.rename(
-            follicle,
-            "%s_%sBind%s_FLC" % (side, limb, str(paramUList.index(paramU)).zfill(2)),
+            follicle, "%s_%sBind%s_FLC" % (side, name, str(follicleId).zfill(2))
         )
         folliclesList.append(follicle)
-        mc.parent(follicle, grp)
+        mc.parent(follicle, bindJointGrp)
+        jointParent = follicle
+        # Create a sphere shaped control under each follicle:
+        if createControls is True:
+            ctl, ofs, grp = buildControl(
+                side, name + str(follicleId).zfill(2), shapeCVs="sphere"
+            )
+            mc.parent(grp, follicle, r=1)
+            jointParent = ctl
 
-        bindJoint = mc.createNode(
-            "joint",
-            name="%s_%sBind%s_JNT"
-            % (side, limb, str(paramUList.index(paramU)).zfill(2)),
-        )
-        mc.parent(bindJoint, follicle, r=1)
-        addToSkinJoints(bindJoint)
+        # Create a bind joint under each follicle and add it to the skinJoints:
+        if createJoints is True:
+            bindJoint = mc.createNode(
+                "joint", name="%s_%sBind%s_JNT" % (side, name, str(follicleId).zfill(2))
+            )
+
+            mc.parent(bindJoint, jointParent, r=1)
+            jointList.append(bindJoint)
+
         if DEBUG_MODE == False:
             mc.setAttr(bindJoint + ".v", 0)
-            mc.setAttr(follicle + ".v", 0)
+            mc.setAttr(follicle + "Shape.visibility", 0)
+    return jointList
 
 
 def lockAndHide(
@@ -2394,7 +2506,7 @@ def blendShapesSetup(poly):
     blendShapeDef = mc.blendShape(
         poly,
         n=poly[:-4] + "_BLS",
-        ip="/Users/Yana/Documents/maya/projects/hp/V_2608/HP_blendShapes.shp",
+        ip="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\shapes\HP_blendShapes.shp",
     )[0]
     for side in "LR":
         ctl, ofs, grp = buildControl(
@@ -2502,10 +2614,10 @@ def main():
     # Create a new file and import model and guides
     mc.file(new=1, force=1)
     mc.file(
-        "/Users/Yana/Documents/maya/projects/hp/V_2608/hp_body.ma", i=1
+        "C:\Users\Yana\Documents\maya\projectFolder\HPScripted\scenes\hp_body.ma", i=1
     )
     mc.file(
-        "/Users/Yana/Documents/maya/projects/hp/V_2608/hp_guides.ma",
+        "C:\Users\Yana\Documents\maya\projectFolder\HPScripted\scenes\hp_guides.ma",
         i=1,
     )
 
@@ -2607,16 +2719,16 @@ def main():
         skinClusterSock = mc.skinCluster(sockSkinJoints, sock, tsb=1)[0]
         skinClusterShoe = mc.skinCluster(shoeSkinJoints, shoe, tsb=1)[0]
         mc.deformerWeights(
-           "%s_sock_skinWeights.xml" % side,
-           path="/Users/Yana/Documents/maya/projects/hp/V_2608/",
-           deformer=skinClusterSock,
+            "%s_sock_skinWeights.xml" % side,
+            path="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\scenes",
+            deformer=skinClusterSock,
             im=1,
             method="index",
         )
         mc.skinCluster(skinClusterSock, e=1, forceNormalizeWeights=True)
         mc.deformerWeights(
             "%s_shoe_skinWeights.xml" % side,
-            path="/Users/Yana/Documents/maya/projects/hp/V_2608/",
+            path="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\scenes",
             deformer=skinClusterShoe,
             im=1,
             method="index",
@@ -2700,7 +2812,6 @@ def main():
         # Clean up:
         if not DEBUG_MODE:
             lockAndHide(elbowPoleVectorCtl, [".rxyz"])
-    sweaterDoubleRibbonSetup("C_jumperUpper_CRV", "C_jumperLower_CRV", "sweater")
     # Housekeeping:
     groups = mc.ls("*GRP")
     offsets = mc.ls("*OFS")
@@ -2717,15 +2828,31 @@ def main():
 
     mc.deformerWeights(
         "body_skin_weights_02.xml",
-        path="/Users/Yana/Documents/maya/projects/hp/V_2608/",
+        path="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\sourceimages",
         deformer=skinCluster,
         im=1,
         method="index",
     )
     mc.skinCluster(skinCluster, e=1, forceNormalizeWeights=True)
     blendShapes = blendShapesSetup(body)
+    # Clothes skinning:
+    pants = "C_pants_PLY"
+    shirt = "C_shirt_PLY"
+    tie = "C_tie_PLY"
+    sweater = "C_jumper_PLY"
+    for ply in [pants, shirt, tie]:
+        clothingSkinCluster = mc.skinCluster(
+            skinJoints, ply, n=ply[:-4] + "_SC", tsb=1
+        )[0]
+    # Sweater:
+    sweaterRibbonBindJoints = sweaterDoubleRibbonSetup(
+        "C_jumperUpper_CRV", "C_jumperLower_CRV", "sweater"
+    )
+    sweaterSkinCluster = mc.skinCluster(
+        skinJoints + sweaterRibbonBindJoints, sweater, n=sweater[:-4] + "_SC", tsb=1
+    )[0]
 
-    #Ensuring deformers are in the correct order:
+    # Ensuring deformers are in the correct order:
     mc.reorderDeformers("wire1", skinCluster, body)
     mc.reorderDeformers(skinCluster, blendShapes, body)
 
