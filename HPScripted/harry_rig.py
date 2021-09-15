@@ -2355,7 +2355,7 @@ def sweaterDoubleRibbonSetup(curveUpper, curveLower, name):
     )
     baseSurfaceSkinJoints = createBindJoints(
         side="C",
-        name=name,
+        name=name + "Base",
         nurbsSfs=nurbsSfsBase,
         numFollicles=12,
         createControls=True,
@@ -2381,7 +2381,7 @@ def sweaterDoubleRibbonSetup(curveUpper, curveLower, name):
 
     secondSurfaceBindJoints = createBindJoints(
         side="C",
-        name=name + "Bind",
+        name=name + "Second",
         nurbsSfs=nurbsSfsSecond,
         numFollicles=20,
         createJoints=True,
@@ -2836,21 +2836,32 @@ def main():
     mc.skinCluster(skinCluster, e=1, forceNormalizeWeights=True)
     blendShapes = blendShapesSetup(body)
     # Clothes skinning:
-    pants = "C_pants_PLY"
-    shirt = "C_shirt_PLY"
-    tie = "C_tie_PLY"
-    sweater = "C_jumper_PLY"
-    for ply in [pants, shirt, tie]:
-        clothingSkinCluster = mc.skinCluster(
-            skinJoints, ply, n=ply[:-4] + "_SC", tsb=1
-        )[0]
     # Sweater:
+    sweater = "C_jumper_PLY"
     sweaterRibbonBindJoints = sweaterDoubleRibbonSetup(
         "C_jumperUpper_CRV", "C_jumperLower_CRV", "sweater"
     )
-    sweaterSkinCluster = mc.skinCluster(
-        skinJoints + sweaterRibbonBindJoints, sweater, n=sweater[:-4] + "_SC", tsb=1
-    )[0]
+
+    for ply in ["pants", "shirt", "tie", "jumper"]:
+        if ply == "jumper":
+            clothingSkinCluster = mc.skinCluster(
+                skinJoints + sweaterRibbonBindJoints,
+                sweater,
+                n=sweater[:-4] + "_SC",
+                tsb=1,
+            )[0]
+        else:
+            clothingSkinCluster = mc.skinCluster(
+                skinJoints, "C_%s_PLY" % ply, n="C_%s_SC" % ply, tsb=1
+            )[0]
+        mc.deformerWeights(
+            "%s_skin_weights.xml" % ply,
+            path="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\sourceimages",
+            deformer=clothingSkinCluster,
+            im=1,
+            method="index",
+        )
+        mc.skinCluster(clothingSkinCluster, e=1, forceNormalizeWeights=True)
 
     # Ensuring deformers are in the correct order:
     mc.reorderDeformers("wire1", skinCluster, body)
