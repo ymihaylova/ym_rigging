@@ -332,6 +332,7 @@ class FaceComponent:
         )
         # Lip corner compound controls:
         lipCornerControlOrientGuide = "L_lipCornerOrient_LOC"
+        mc.parent(lipCornerControlOrientGuide, "rig_GRP")
         # Left corner
         _, dummyCluster = mc.cluster(upperLip + ".cv[0][0:3]")
         leftLipCtl, leftLipOfs, leftLipGrp = buildControl(
@@ -344,6 +345,7 @@ class FaceComponent:
         mc.delete(dummyCluster)
         mc.delete(mc.orientConstraint(lipCornerControlOrientGuide, leftLipGrp, mo=0))
         lipCornerControlOrientGuide = "R_lipCornerOrient_LOC"
+        mc.parent(lipCornerControlOrientGuide, "rig_GRP")
         # Right corner:
         _, dummyCluster = mc.cluster(upperLip + ".cv[14][0:3]")
         rightLipCtl, rightLipOfs, rightLipGrp = buildControl(
@@ -695,6 +697,13 @@ class FaceComponent:
             upperLidCRV = "%s_lidUpper_CRV" % side
             lowerLidCRV = "%s_lidLower_CRV" % side
             eyeJnt = "%s_eye_JNT" % side
+            # Create a duplicate of the eye joint to use for skinning of the eyelid area:
+            eyeScalingJnt = mc.duplicate(eyeJnt)[0]
+            eyeScalingJnt = mc.rename(
+                eyeScalingJnt, eyeScalingJnt.replace("_JNT1", "Scaling_JNT")
+            )
+            mc.setAttr(eyeScalingJnt + ".v", 0)
+            addToSkinJoints(eyeScalingJnt)
             # Pupil joint which will be controlled by an attribute on the eye rotation ctl:
             pupilJnt = mc.duplicate(eyeJnt)[0]
             pupilJnt = mc.rename(pupilJnt, pupilJnt.replace("_JNT1", "PupilSize_JNT"))
@@ -719,7 +728,8 @@ class FaceComponent:
 
             mc.scale(2, 2, 2, eyeSystemCtl + "Shape*.cv[*]")
             mc.parent(eyeSystemGrp, "C_head_CTL")
-            mc.parent(eyeJnt, eyeSystemCtl)
+            mc.parent(eyeJnt, eyeScalingJnt, eyeSystemCtl)
+
             # Extract twist of the eye in X(up/down), and Y(leftRight) in preparation for
             # plugging it into the lid controls for fleshy eyelids:
             eyeJointTwistInX = vs.extractTwist(eyeJnt, eyeSystemCtl)
@@ -2506,7 +2516,7 @@ def blendShapesSetup(poly):
     blendShapeDef = mc.blendShape(
         poly,
         n=poly[:-4] + "_BLS",
-        ip="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\shapes\HP_blendShapes.shp",
+        ip="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\shapes\HP_blendShapesCleanInside2.shp",
     )[0]
     for side in "LR":
         ctl, ofs, grp = buildControl(
@@ -2574,10 +2584,26 @@ def blendShapesSetup(poly):
     jawOpenClamp = mc.createNode("clamp", n="C_jawOpenBlendShape_CLP")
     mc.setAttr(jawOpenClamp + ".minR", 0)
     mc.setAttr(jawOpenClamp + ".maxR", 1)
-    mc.connectAttr("C_jaw_CTL.rotateZ", jawOpen0to16 + ".inputA")
+    # Extract the twist in Z for the Jaw Control:
+    jawTwistZ = vs.extractTwist("C_jaw_CTL", "C_head_CTL", alignXwith="Z")
+    mc.connectAttr(jawTwistZ, jawOpen0to16 + ".inputA")
     mc.setAttr(jawOpen0to16 + ".weightA", -0.066)
     mc.connectAttr(jawOpen0to16 + ".output", jawOpenClamp + ".inputR")
     mc.connectAttr(jawOpenClamp + ".outputR", blendShapeDef + ".C_jawOpenCorrective")
+
+    # Head rotation in X controlling the neck corrective:
+    head0to45 = mc.createNode(
+        "animBlendNodeAdditiveDA", n="C_neckCorrectiveFromHeadTwistNormalize0to1_ADA"
+    )
+    neckClamp = mc.createNode("clamp", n="C_neckBlendShape_CLP")
+    mc.setAttr(neckClamp + ".minR", 0)
+    mc.setAttr(neckClamp + ".maxR", 1)
+    # Extract the twist in X for the head Control:
+    headTwistX = vs.extractTwist("C_head_CTL", "C_neck_CTL", alignXwith="X")
+    mc.connectAttr(headTwistX, head0to45 + ".inputA")
+    mc.setAttr(head0to45 + ".weightA", -0.022)
+    mc.connectAttr(head0to45 + ".output", neckClamp + ".inputR")
+    mc.connectAttr(neckClamp + ".outputR", blendShapeDef + ".C_neck")
 
     return blendShapeDef
 
@@ -2827,7 +2853,7 @@ def main():
     mc.setAttr(skinCluster + ".skinningMethod", 2)
 
     mc.deformerWeights(
-        "body_skin_weights_02.xml",
+        "body_skin_weights_04.xml",
         path="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\sourceimages",
         deformer=skinCluster,
         im=1,
