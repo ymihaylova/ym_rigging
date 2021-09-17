@@ -2318,7 +2318,12 @@ def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpnes
             cvs, name="%s_%sNURBS%s_CLS" % (side, limb, str(counter).zfill(2))
         )
         curveClusters.append(clusterHandle)
-        mc.parent(clusterHandle, clusterParents[counter])
+        clusterGroup = mc.createNode(
+            "transform", n="%s_%s%sCLS_GRP" % (side, limb, str(counter).zfill(2))
+        )
+        mc.delete(mc.parentConstraint(clusterHandle, clusterGroup, mo=0))
+        mc.parent(clusterHandle, clusterGroup)
+        mc.parent(clusterGroup, clusterParents[counter])
         if DEBUG_MODE == False:
             mc.setAttr(clusterHandle + ".visibility", 0)
 
@@ -2327,7 +2332,6 @@ def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpnes
         paramUList = prm.PARAM_U_ARMS
     else:
         paramUList = prm.PARAM_U_LEGS
-    print(len(paramUList))
     limbBindJoints = createBindJoints(
         side,
         limb,
@@ -2336,7 +2340,6 @@ def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpnes
         createJoints=True,
         paramUList=paramUList,
     )
-    print(limbBindJoints)
     for joint in limbBindJoints:
         addToSkinJoints(joint)
     limbHalfTwist(side, limb)
@@ -2345,18 +2348,35 @@ def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpnes
         mc.setAttr(nurbsSfs + ".v", 0)
 
 
-def sweaterDoubleRibbonSetup(curveUpper, curveLower, name):
+def doubleRibbonSetup(
+    side,
+    name,
+    parentGroup,
+    curveUpper,
+    curveLower,
+    baseNumFollicles,
+    secondNumFollicles,
+    copySkinWeightsFrom,
+):
     """Creates a two NURBS surfaces, the base one driven by the body skinning, 
     and the second one driven by bind joints attached to the base one. Returns 
     the bind joints fron the second NURBS in a list"""
-    sweaterCtlsGrp = mc.createNode("transform", n="C_sweaterControls_GRP")
-    mc.parent(sweaterCtlsGrp, "C_harry_CTL", r=1)
-    mc.setAttr(sweaterCtlsGrp + ".inheritsTransform", 0)
+    ctlsGrp = mc.createNode("transform", n="%s_%ssControls_GRP" % (side, name))
+    mc.parent(ctlsGrp, parentGroup, r=1)
+    mc.setAttr(ctlsGrp + ".inheritsTransform", 0)
 
     c1 = curveUpper
     c2 = curveLower
     nurbsSfsBase = mc.loft(
-        c1, c2, d=1, u=1, rn=0, rsn=True, ch=0, n="C_%sSurface_NRB" % name, po=0,
+        c1,
+        c2,
+        d=1,
+        u=1,
+        rn=0,
+        rsn=True,
+        ch=0,
+        n="%s_%sSurface_NRB" % (side, name),
+        po=0,
     )[0]
     mc.delete(c1, c2)
     nurbsSfsSecond = mc.duplicate(nurbsSfsBase)[0]
@@ -2364,36 +2384,46 @@ def sweaterDoubleRibbonSetup(curveUpper, curveLower, name):
         nurbsSfsSecond, nurbsSfsSecond.replace("_NRB1", "Second_NRB")
     )
     baseSurfaceSkinJoints = createBindJoints(
-        side="C",
+        side=side,
         name=name + "Base",
         nurbsSfs=nurbsSfsBase,
-        numFollicles=12,
+        numFollicles=baseNumFollicles,
         createControls=True,
         createJoints=True,
-        parentNode=sweaterCtlsGrp,
+        parentNode=ctlsGrp,
     )
     # create a skin cluster on the base surface and copy the skin weights from the body to it.
     baseSurfaceSkinning = mc.skinCluster(
         mc.listConnections("C_harry_CTL.skinJoints"),
         nurbsSfsBase,
-        n="C_baseSweaterSurface_SC",
+        n="%s_%sBaseSurface_SC" % (side, name),
         tsb=1,
     )[0]
-    mc.copySkinWeights(
-        ss="C_body_SCD", ds=baseSurfaceSkinning, ia=["closestJoint", "oneToOne"], nr=1,
+    mc.skinCluster(baseSurfaceSkinning, e=1, forceNormalizeWeights=True)
+    mc.deformerWeights(
+        "%s_%sSurface_skin_weights.xml" % (side, name),
+        path="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\sourceimages",
+        deformer=baseSurfaceSkinning,
+        im=1,
+        method="index",
     )
+    mc.skinCluster(baseSurfaceSkinning, e=1, forceNormalizeWeights=True)
+
     # Create multiple bind joints onto the second surface to use as Bind Joints
     # for the sweater. Use bind joints from the base surface to drive the
     # deformation of the skinning surface:
     mc.skinCluster(
-        baseSurfaceSkinJoints, nurbsSfsSecond, n="C_sweaterSecondSurface_SC", tsb=1
+        baseSurfaceSkinJoints,
+        nurbsSfsSecond,
+        n="%s_%sSecondSurface_SC" % (side, name),
+        tsb=1,
     )
 
     secondSurfaceBindJoints = createBindJoints(
-        side="C",
+        side=side,
         name=name + "Second",
         nurbsSfs=nurbsSfsSecond,
-        numFollicles=20,
+        numFollicles=secondNumFollicles,
         createJoints=True,
     )
 
@@ -2404,24 +2434,37 @@ def sweaterDoubleRibbonSetup(curveUpper, curveLower, name):
 
 def limbHalfTwist(side, limb):
     if limb == "arm":
-        twistingJoint = "%s_arm03_JNT" % side
-        staticParent = "%s_arm02_JNT" % side
-        alignWith = "X"
-        halfValue = 0.5
+        jointPairs = [
+            ["%s_arm01_JNT" % side, "%s_arm02_JNT" % side],
+            ["%s_arm02_JNT" % side, "%s_arm03_JNT" % side],
+        ]
+        alignWithValues = ["X", "X"]
     else:
-        twistingJoint = "%s_leg02_JNT" % side
-        staticParent = "%s_leg01_JNT" % side
-        alignWith = "Y"
-        halfValue = -0.5
+        jointPairs = [
+            ["%s_leg00_JNT" % side, "%s_leg01_JNT" % side],
+            ["%s_leg01_JNT" % side, "%s_leg02_JNT" % side],
+        ]
+        alignWithValues = ["X", "Y"]
 
-    endJointTwist = vs.extractTwist(twistingJoint, staticParent, alignWith)
-    # Plug this value of rotation into an ADA to half the rotation value:
-    halfRotation = mc.createNode(
-        "animBlendNodeAdditiveDA", n="%s_%slowerJointHalvedTwist_ADA" % (side, limb)
-    )
-    mc.connectAttr(endJointTwist, halfRotation + ".inputA")
-    mc.setAttr(halfRotation + ".weightA", halfValue)
-    mc.connectAttr(halfRotation + ".output", "%s_%sLower_OFS.rx" % (side, limb))
+    for jointPair, alignWithValue in zip(jointPairs, alignWithValues):
+        twistingJoint = jointPair[1]
+        staticParent = jointPair[0]
+        if limb == "leg" and jointPair == jointPairs[1]:
+            halfValue = -0.5
+        else:
+            halfValue = 0.5
+        endJointTwist = vs.extractTwist(twistingJoint, staticParent, alignWithValue)
+        # Plug this value of rotation into an ADA to half the rotation value:
+        halfRotation = mc.createNode(
+            "animBlendNodeAdditiveDA",
+            n="%s_%sJointHalvedTwist_ADA" % (side, twistingJoint[2:-4]),
+        )
+        mc.connectAttr(endJointTwist, halfRotation + ".inputA")
+        mc.setAttr(halfRotation + ".weightA", halfValue)
+        if jointPair == jointPairs[0]:
+            mc.connectAttr(halfRotation + ".output", "%s_%sUpper_OFS.rx" % (side, limb))
+        else:
+            mc.connectAttr(halfRotation + ".output", "%s_%sLower_OFS.rx" % (side, limb))
 
 
 def createBindJoints(
@@ -2446,7 +2489,6 @@ def createBindJoints(
     jointList = []
     paramUIncrement = 1 / (numFollicles * 1.00)
     paramUFollicle = 1 / (numFollicles * 2.00)
-    print(numFollicles)
     # Create a follicle at a specified parameter U if given, or uniformly.
     for follicleId in range(numFollicles):
         if paramUList is not None:
@@ -2457,7 +2499,6 @@ def createBindJoints(
             follicle = vs.createFollicle(
                 nurbsSfs, parameterU=paramUFollicle, parameterV=0.5
             )
-            print(paramUFollicle)
             paramUFollicle += paramUIncrement
         follicle = mc.rename(
             follicle, "%s_%sBind%s_FLC" % (side, name, str(follicleId).zfill(2))
@@ -2486,6 +2527,28 @@ def createBindJoints(
             mc.setAttr(bindJoint + ".v", 0)
             mc.setAttr(follicle + "Shape.visibility", 0)
     return jointList
+
+
+def shoulderHalfTwist(side, name):
+    """Calculates the twist in Z for each shouled (arm01) JNT and plugs a halved
+    value into the armNURBS00_CLS to negate some of the intersection when raising
+    the arm"""
+
+    extractedTwistShoulder = vs.extractTwist(
+        "%s_arm01_JNT" % side, "%s_arm00_JNT" % side, alignXwith="Z"
+    )
+    clusterParentNodeOrientated = mc.createNode(
+        "transform", n="%s_%sOrientated_TRN" % (side, name)
+    )
+    mc.parent(clusterParentNodeOrientated, "%s_arm01_JNT" % side, r=1)
+    mc.parent("%s_arm00CLS_GRP" % side, clusterParentNodeOrientated)
+    # Plug this value of rotation into an ADA to half the rotation value:
+    halfRotation = mc.createNode(
+        "animBlendNodeAdditiveDA", n="%s_%s_ADA" % (side, name),
+    )
+    mc.connectAttr(extractedTwistShoulder, halfRotation + ".inputA")
+    mc.setAttr(halfRotation + ".weightA", -0.5)
+    mc.connectAttr(halfRotation + ".output", clusterParentNodeOrientated + ".rotateZ")
 
 
 def lockAndHide(
@@ -2608,6 +2671,44 @@ def blendShapesSetup(poly):
     return blendShapeDef
 
 
+def jointWithHalfwayTwist(
+    joint1,
+    joint2,
+    twistAxisJoint1,
+    twistAxisJoint2,
+    twistAxisHalfwayJoint,
+    staticParent,
+    side,
+    name,
+):
+    """Takes two joints, calculates their twist in the given axis and applies half 
+    of that to a third joint created and situated halfway between the two. 
+    Returns the halfway joint."""
+
+    joint1Twist = vs.extractTwist(joint1, staticParent, alignXwith=twistAxisJoint1)
+    joint2Twist = vs.extractTwist(joint2, staticParent, alignXwith=twistAxisJoint2)
+
+    halfwayRotationBlendNode = mc.createNode(
+        "animBlendNodeAdditiveDA", n="%s_%sHalfwayRotationBlend_ADA" % (side, name)
+    )
+    mc.setAttr(halfwayRotationBlendNode + ".weightA", 0.5)
+    mc.setAttr(halfwayRotationBlendNode + ".weightB", 0.5)
+
+    mc.connectAttr(joint1Twist, halfwayRotationBlendNode + ".inputA")
+    mc.connectAttr(joint2Twist, halfwayRotationBlendNode + ".inputB")
+
+    # Halfway joint:
+    halfwayJoint = mc.createNode("joint", n="%s_%s_JNT" % (side, name))
+    mc.delete(mc.parentConstraint(joint1, joint2, halfwayJoint, mo=0))
+    mc.parent(halfwayJoint, staticParent)
+    mc.connectAttr(
+        halfwayRotationBlendNode + ".output",
+        halfwayJoint + ".rotate%s" % twistAxisHalfwayJoint,
+    )
+
+    return halfwayJoint
+
+
 def createSpaces(ctl, spaces=[]):
     # This function takes a control and adds an enum Space attribute to it.
     # Then goes through the list of objects to be used as spaces and creates a
@@ -2726,6 +2827,19 @@ def main():
         # Build foot roll:
         footRollSetup(side, footIkCtl)
 
+        # Temporary place for the halfwayHipJoint creation:
+        if side == "R":
+            halfwayHipJoint = jointWithHalfwayTwist(
+                "L_leg00_JNT",
+                "R_leg00_JNT",
+                twistAxisJoint1="Y",
+                twistAxisJoint2="Y",
+                twistAxisHalfwayJoint="Y",
+                staticParent="C_hips_CTL",
+                side="C",
+                name="halfwayLeg00",
+            )
+
         buildBendyLimbs(side, "leg")
         # Clean up:
         if not DEBUG_MODE:
@@ -2835,9 +2949,14 @@ def main():
         # Build Hand structure and controls:
         hand = HandComponent(side)
         buildBendyLimbs(side, "arm")
+        # Negate the arm00_JNT twist in Z by 0.5 and plug that directly into the
+        # arm00 cluster to deal with some of the intersecting that occurs when
+        # raising the arm:
+        shoulderHalfTwist(side, "halfTwistInShoulder")
         # Clean up:
         if not DEBUG_MODE:
             lockAndHide(elbowPoleVectorCtl, [".rxyz"])
+
     # Housekeeping:
     groups = mc.ls("*GRP")
     offsets = mc.ls("*OFS")
@@ -2861,25 +2980,49 @@ def main():
     )
     mc.skinCluster(skinCluster, e=1, forceNormalizeWeights=True)
     blendShapes = blendShapesSetup(body)
+
+    # Ensuring deformers are in the correct order:
+    mc.reorderDeformers("wire1", skinCluster, body)
+    mc.reorderDeformers(skinCluster, blendShapes, body)
+
     # Clothes skinning:
     # Sweater:
+    clothesGroup = mc.createNode("transform", n="C_clothes_GRP")
+    mc.parent(clothesGroup, harryCtl, r=1)
     sweater = "C_jumper_PLY"
-    sweaterRibbonBindJoints = sweaterDoubleRibbonSetup(
-        "C_jumperUpper_CRV", "C_jumperLower_CRV", "sweater"
+    sweaterBindJoints = []
+    sweaterBindJoints += doubleRibbonSetup(
+        "C",
+        "sweater",
+        clothesGroup,
+        "C_jumperUpper_CRV",
+        "C_jumperLower_CRV",
+        baseNumFollicles=12,
+        secondNumFollicles=20,
+        copySkinWeightsFrom=body,
     )
+    for side in "LR":
+        sweaterBindJoints += doubleRibbonSetup(
+            side,
+            "sweaterSleeve",
+            clothesGroup,
+            "%s_sleeveUpper_CRV" % side,
+            "%s_sleeveLower_CRV" % side,
+            baseNumFollicles=6,
+            secondNumFollicles=12,
+            copySkinWeightsFrom=body,
+        )
 
     for ply in ["pants", "shirt", "tie", "jumper"]:
-        if ply == "jumper":
-            clothingSkinCluster = mc.skinCluster(
-                skinJoints + sweaterRibbonBindJoints,
-                sweater,
-                n=sweater[:-4] + "_SC",
-                tsb=1,
-            )[0]
+        if ply in ["jumper", "shirt"]:
+            bindJoints = skinJoints + sweaterBindJoints
         else:
-            clothingSkinCluster = mc.skinCluster(
-                skinJoints, "C_%s_PLY" % ply, n="C_%s_SC" % ply, tsb=1
-            )[0]
+            bindJoints = skinJoints
+
+        clothingSkinCluster = mc.skinCluster(
+            bindJoints, "C_%s_PLY" % ply, n="C_%s_SC" % ply, tsb=1
+        )[0]
+
         mc.deformerWeights(
             "%s_skin_weights.xml" % ply,
             path="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\sourceimages",
@@ -2888,10 +3031,6 @@ def main():
             method="index",
         )
         mc.skinCluster(clothingSkinCluster, e=1, forceNormalizeWeights=True)
-
-    # Ensuring deformers are in the correct order:
-    mc.reorderDeformers("wire1", skinCluster, body)
-    mc.reorderDeformers(skinCluster, blendShapes, body)
 
     # Skin gums, teeth, tongue:
     mc.skinCluster("C_head_JNT", "C_upperTeeth_PLY", tsb=1)
