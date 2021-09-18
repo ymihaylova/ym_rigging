@@ -2410,7 +2410,7 @@ def doubleRibbonSetup(
     mc.skinCluster(baseSurfaceSkinning, e=1, forceNormalizeWeights=True)
 
     # Create multiple bind joints onto the second surface to use as Bind Joints
-    # for the sweater. Use bind joints from the base surface to drive the
+    # for the jumper. Use bind joints from the base surface to drive the
     # deformation of the skinning surface:
     mc.skinCluster(
         baseSurfaceSkinJoints,
@@ -2972,7 +2972,7 @@ def main():
     mc.setAttr(skinCluster + ".skinningMethod", 2)
 
     mc.deformerWeights(
-        "body_skin_weights_04.xml",
+        "body_skin_weights_05.xml",
         path="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\sourceimages",
         deformer=skinCluster,
         im=1,
@@ -2986,14 +2986,14 @@ def main():
     mc.reorderDeformers(skinCluster, blendShapes, body)
 
     # Clothes skinning:
-    # Sweater:
+    # jumper:
     clothesGroup = mc.createNode("transform", n="C_clothes_GRP")
     mc.parent(clothesGroup, harryCtl, r=1)
-    sweater = "C_jumper_PLY"
-    sweaterBindJoints = []
-    sweaterBindJoints += doubleRibbonSetup(
+    jumper = "C_jumper_PLY"
+    jumperBindJoints = []
+    jumperBindJoints += doubleRibbonSetup(
         "C",
-        "sweater",
+        "jumper",
         clothesGroup,
         "C_jumperUpper_CRV",
         "C_jumperLower_CRV",
@@ -3002,9 +3002,9 @@ def main():
         copySkinWeightsFrom=body,
     )
     for side in "LR":
-        sweaterBindJoints += doubleRibbonSetup(
+        jumperBindJoints += doubleRibbonSetup(
             side,
-            "sweaterSleeve",
+            "jumperSleeve",
             clothesGroup,
             "%s_sleeveUpper_CRV" % side,
             "%s_sleeveLower_CRV" % side,
@@ -3015,7 +3015,7 @@ def main():
 
     for ply in ["pants", "shirt", "tie", "jumper"]:
         if ply in ["jumper", "shirt"]:
-            bindJoints = skinJoints + sweaterBindJoints
+            bindJoints = skinJoints + jumperBindJoints
         else:
             bindJoints = skinJoints
 
