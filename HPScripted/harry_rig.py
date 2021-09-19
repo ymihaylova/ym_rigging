@@ -303,9 +303,9 @@ class FaceComponent:
         jawCtl, _, jawGrp = buildControl(
             "C", "jaw", jawJnt, shapeCVs=cs.L_CLAVICLE_SHAPE_CVS, shapeKnots=cs.KNOTS
         )
-        mc.scale(1.5, 1.5, 1.5, jawCtl + ".cv[*]")
+        mc.scale(0.8, 0.8, 0.8, jawCtl + ".cv[*]")
         mc.rotate(0, 0, -72.7, jawCtl + ".cv[*]", os=1, fo=1)
-        mc.move(0, -12, 15, jawCtl + ".cv[*]", r=1, ws=1)
+        mc.move(0, -9, 10, jawCtl + ".cv[*]", r=1, ws=1)
         mc.parent(jawJnt, jawCtl)
         mc.parent(jawGrp, "C_head_CTL")
         addToSkinJoints(jawJnt)
@@ -627,6 +627,7 @@ class FaceComponent:
         mc.move(0.5, -0.5, 3, rightEyebrowCtl + ".cv[*]", ws=0, r=1)
         mc.scale(2, 1, 1, rightEyebrowCtl + ".cv[*]")
         mc.delete(clusterHandle)
+
         for counter, cvIds in enumerate(cvOrderRight):
             cvs = browCurve + ".cv[%s]" % cvIds
             _, clusterHandle = mc.cluster(
@@ -686,6 +687,17 @@ class FaceComponent:
         mc.setAttr(browCurve + ".tz", 0)
 
         mc.parentConstraint("C_head_CTL", brows, mo=1)
+        # Point constrain the end secondary layer control to the eyebrow
+        # compound joint and the head control for more pleasing behaviour when
+        # brow is lowered:
+        for side in "LR":
+            mc.pointConstraint(
+                "%s_eyebrowComponent_CTL" % side,
+                "C_head_CTL",
+                "%s_eyebrow02_OFS" % side,
+                mo=1,
+                w=0.5,
+            )
 
         if not DEBUG_MODE:
             mc.hide(browCurve)
@@ -1872,7 +1884,8 @@ def createConnectIkFkSwitch(
         else:
             mc.move(-15, 10, 0, ikFkSwitchGrp, ws=1, r=1)
 
-    mc.parentConstraint(parentJoint, ikFkSwitchGrp, sr=["x", "y", "z"], mo=1)
+    mc.pointConstraint(parentJoint, ikFkSwitchGrp, mo=1)
+    mc.setAttr(ikFkSwitchGrp + ".inheritsTransform", 0)
     # Create the switch attribute, where 0=IK and 1=FK
     ikFkSwitchAttr = vs.addAttr(
         ikFkSwitchCtl, at="float", k=1, ln="ikFkSwitch", max=1, min=0, dv=0
@@ -1916,10 +1929,10 @@ def footRollSetup(side, footIkCtl):
     # Setup foot roll with  Ball Straight and Toe Lift attributes exposed:
     rollAttr = vs.addAttr(footIkCtl, ln="roll", at="doubleAngle", k=1)
     toeLiftAttr = vs.addAttr(
-        footIkCtl, ln="toeLift", at="doubleAngle", k=1, dv=0.5235988
+        footIkCtl, ln="toesThreshold", at="doubleAngle", k=1, dv=0.5235988
     )
     ballStraightAttr = vs.addAttr(
-        footIkCtl, ln="ballStraight", at="doubleAngle", k=1, dv=1.047198
+        footIkCtl, ln="ballThreshold", at="doubleAngle", k=1, dv=1.047198
     )
     ikCtlChildren = mc.listRelatives(footIkCtl, c=1)
     ikCtlChildren.remove(footIkCtl + "Shape")
@@ -2058,19 +2071,17 @@ def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpnes
     # Create guide joints for the midway controls for ribbons
     upperJoint, lowerJoint = None, None
     if limb == "arm":
-        upperJoint = mc.duplicate(
-            "%s_arm02_JNT" % side, po=1, n="%s_upperArm_JNT" % side
-        )[0]
-        lowerJoint = mc.duplicate(
-            "%s_arm03_JNT" % side, po=1, n="%s_lowerArm_JNT" % side
-        )[0]
-    elif limb == "leg":
-        upperJoint = mc.duplicate(
-            "%s_leg01_JNT" % side, po=1, n="%s_upperLeg_JNT" % side
-        )[0]
-        lowerJoint = mc.duplicate(
-            "%s_leg02_JNT" % side, po=1, n="%s_lowerLeg_JNT" % side
-        )[0]
+        jointPairs = ["1", "2", "3"]
+    else:
+        jointPairs = ["0", "1", "2"]
+
+    upperJoint = mc.duplicate(
+        "%s_%s0%s_JNT" % (side, limb, jointPairs[1]), po=1, n="%s_upperArm_JNT" % side
+    )[0]
+    lowerJoint = mc.duplicate(
+        "%s_%s0%s_JNT" % (side, limb, jointPairs[2]), po=1, n="%s_lowerArm_JNT" % side
+    )[0]
+
     xPosUpper = mc.getAttr(upperJoint + ".tx") * 0.5
     mc.setAttr(upperJoint + ".tx", xPosUpper)
     xPosLower = mc.getAttr(lowerJoint + ".tx") * 0.5
@@ -2082,7 +2093,7 @@ def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpnes
         mc.setAttr(jnt + ".jointOrientY", 0)
         mc.setAttr(jnt + ".jointOrientZ", 0)
 
-    upperCtl, _, upperCtlGrp = buildControl(
+    upperCtl, upperOfs, upperCtlGrp = buildControl(
         side,
         "%sUpper" % limb,
         upperJoint,
@@ -2090,7 +2101,7 @@ def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpnes
         shapeKnots=cs.KNOTS,
         colour=18 if side == "L" else 20,
     )
-    lowerCtl, _, lowerCtlGrp = buildControl(
+    lowerCtl, lowerOfs, lowerCtlGrp = buildControl(
         side,
         "%sLower" % limb,
         lowerJoint,
@@ -2103,13 +2114,29 @@ def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpnes
         lockAndHide(lowerCtl, [".rxyz", ".sxyz"])
 
     mc.parent(upperCtlGrp, lowerCtlGrp, "ctls_GRP")
-    # Parent constrain
-    if limb == "arm":
-        mc.parentConstraint("%s_arm01_JNT" % side, upperCtlGrp, mo=1)
-        mc.parentConstraint("%s_arm02_JNT" % side, lowerCtlGrp, mo=1)
-    else:
-        mc.parentConstraint("%s_leg00_JNT" % side, upperCtlGrp, mo=1)
-        mc.parentConstraint("%s_leg01_JNT" % side, lowerCtlGrp, mo=1)
+
+    # Point and Orient contstrain the bend controls so that they travel with
+    # the stretched limb and maintain the orientation of the control higher up
+    # in the chain. NOTE:Plugged into the group as opposed to the offset due to the
+    # half twist function calculation already affecting the offset later on:
+    mc.orientConstraint("%s_%s0%s_JNT" % (side, limb, jointPairs[0]), upperCtlGrp)
+    mc.orientConstraint("%s_%s0%s_JNT" % (side, limb, jointPairs[1]), lowerCtlGrp)
+
+    mc.pointConstraint(
+        "%s_%s0%s_JNT" % (side, limb, jointPairs[0]),
+        "%s_%s0%s_JNT" % (side, limb, jointPairs[1]),
+        upperCtlGrp,
+        mo=1,
+        w=0.5,
+    )
+    mc.pointConstraint(
+        "%s_%s0%s_JNT" % (side, limb, jointPairs[1]),
+        "%s_%s0%s_JNT" % (side, limb, jointPairs[2]),
+        lowerCtlGrp,
+        mo=1,
+        w=0.5,
+    )
+
     jointChainReversed = mc.listRelatives(
         "%s_%s00_JNT" % (side, limb), ad=1, typ="joint"
     )
@@ -2120,7 +2147,7 @@ def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpnes
         jointChain = jointChain[:-1]
     else:
         jointChain = jointChain[1:]
-    # def buildNurbsSurface(limb, upperCtl, lowerCtl):
+
     positionOrder = []
     extractedPointLocations = []
     # Extract joint xyz world space location
@@ -2346,6 +2373,18 @@ def buildBendyLimbs(side, limb, elbowKneeBendSharpness=2, wristAnkleBendSharpnes
 
     if DEBUG_MODE == False:
         mc.setAttr(nurbsSfs + ".v", 0)
+
+
+def createBindJointforJumperSleeve(side, pointConstraintJoint, orientConstraintJoint):
+    bindJoint = mc.createNode(
+        "joint", n=pointConstraintJoint.replace("03_JNT", "jumperSleeveBind_JNT")
+    )
+    mc.parent(bindJoint, "%s_arm_GRP" % side)
+
+    mc.pointConstraint(pointConstraintJoint, bindJoint, mo=0)
+    mc.orientConstraint(orientConstraintJoint, bindJoint, mo=0)
+
+    return bindJoint
 
 
 def doubleRibbonSetup(
@@ -2579,8 +2618,10 @@ def blendShapesSetup(poly):
     blendShapeDef = mc.blendShape(
         poly,
         n=poly[:-4] + "_BLS",
-        ip="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\shapes\HP_blendShapesCleanInside2.shp",
+        ip="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\shapes\hp_bodyShapes180921.shp",
     )[0]
+    mc.setAttr(blendShapeDef + ".C_bodyShrink", 1)
+
     for side in "LR":
         ctl, ofs, grp = buildControl(
             side,
@@ -2640,6 +2681,18 @@ def blendShapesSetup(poly):
         mc.connectAttr(clampNegative + ".outputR", blendShapeDef + ".%s_narrow" % side)
         mc.connectAttr(clampNegative + ".outputG", blendShapeDef + ".%s_frown" % side)
 
+    # Jumper bottom blend shape creation and connection
+    jumperBlendShape = mc.blendShape(
+        ["L_jumperSurfaceLegUp", "R_jumperSurfaceLegUp"],
+        "C_jumperSurface_NRB",
+        n="C_jumperSurfaceBase_BLS",
+    )[0]
+    for s in "LR":
+        mc.connectAttr(
+            s + "_leg00YTwistExtractionTransform_RMV.outValue",
+            jumperBlendShape + "." + s + "_jumperSurfaceLegUp",
+        )
+
     # Jaw opening controlling the jaw open corrective:
     jawOpen0to16 = mc.createNode(
         "animBlendNodeAdditiveDA", n="C_jawCorrectiveNormalize0to1_ADA"
@@ -2669,6 +2722,26 @@ def blendShapesSetup(poly):
     mc.connectAttr(neckClamp + ".outputR", blendShapeDef + ".C_neck")
 
     return blendShapeDef
+
+
+def blendShapeDriverFromTwist(twistValue, angle=90, remapRange=(0, 1)):
+    node = mc.createNode(
+        "multiplyDivide", n=twistValue.split(".")[0].rsplit("_", 1)[0] + "_MDV"
+    )
+    mc.connectAttr(twistValue, node + ".input1X")
+    mc.setAttr(node + ".input2X", angle)
+    mc.setAttr(node + ".operation", 2)
+
+    clamp = mc.createNode("clamp", n=node.replace("_MDV", "_CLP"))
+    mc.setAttr(clamp + ".maxR", 1)
+    mc.connectAttr(node + ".outputX", clamp + ".inputR")
+
+    remap = mc.createNode("remapValue", n=node.replace("_MDV", "_RMV"))
+    mc.setAttr(remap + ".inputMin", remapRange[0])
+    mc.setAttr(remap + ".outputMax", remapRange[1])
+    mc.connectAttr(clamp + ".outputR", remap + ".inputValue")
+
+    return remap + ".outValue"
 
 
 def jointWithHalfwayTwist(
@@ -2705,8 +2778,9 @@ def jointWithHalfwayTwist(
         halfwayRotationBlendNode + ".output",
         halfwayJoint + ".rotate%s" % twistAxisHalfwayJoint,
     )
+    addToSkinJoints(halfwayJoint)
 
-    return halfwayJoint
+    return halfwayJoint, joint1Twist, joint2Twist
 
 
 def createSpaces(ctl, spaces=[]):
@@ -2741,10 +2815,11 @@ def main():
     # Create a new file and import model and guides
     mc.file(new=1, force=1)
     mc.file(
-        "C:\Users\Yana\Documents\maya\projectFolder\HPScripted\scenes\hp_body.ma", i=1
+        "C:\Users\Yana\Documents\maya\projectFolder\HPScripted\scenes\hp_body_textured.ma",
+        i=1,
     )
     mc.file(
-        "C:\Users\Yana\Documents\maya\projectFolder\HPScripted\scenes\hp_guides.ma",
+        "C:\Users\Yana\Documents\maya\projectFolder\HPScripted\scenes\hp_guides_withSnS.ma",
         i=1,
     )
 
@@ -2829,7 +2904,7 @@ def main():
 
         # Temporary place for the halfwayHipJoint creation:
         if side == "R":
-            halfwayHipJoint = jointWithHalfwayTwist(
+            halfwayHipJoint, leftTwist, rightTwist = jointWithHalfwayTwist(
                 "L_leg00_JNT",
                 "R_leg00_JNT",
                 twistAxisJoint1="Y",
@@ -2839,6 +2914,10 @@ def main():
                 side="C",
                 name="halfwayLeg00",
             )
+
+            # Drive leg up corrective BS:
+            blendShapeDriverFromTwist(leftTwist, -90, (0.32, 0.87))
+            blendShapeDriverFromTwist(rightTwist, -90, (0.32, 0.87))
 
         buildBendyLimbs(side, "leg")
         # Clean up:
@@ -2972,18 +3051,13 @@ def main():
     mc.setAttr(skinCluster + ".skinningMethod", 2)
 
     mc.deformerWeights(
-        "body_skin_weights_05.xml",
+        "body_skin_weights_06.xml",
         path="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\sourceimages",
         deformer=skinCluster,
         im=1,
         method="index",
     )
     mc.skinCluster(skinCluster, e=1, forceNormalizeWeights=True)
-    blendShapes = blendShapesSetup(body)
-
-    # Ensuring deformers are in the correct order:
-    mc.reorderDeformers("wire1", skinCluster, body)
-    mc.reorderDeformers(skinCluster, blendShapes, body)
 
     # Clothes skinning:
     # jumper:
@@ -3002,6 +3076,13 @@ def main():
         copySkinWeightsFrom=body,
     )
     for side in "LR":
+        # create a bind joint for each sleeve base nurbs sfs:
+        addToSkinJoints(
+            createBindJointforJumperSleeve(
+                side, "%s_arm03_JNT" % side, "%s_armBind09_JNT" % side
+            )
+        )
+
         jumperBindJoints += doubleRibbonSetup(
             side,
             "jumperSleeve",
@@ -3032,12 +3113,29 @@ def main():
         )
         mc.skinCluster(clothingSkinCluster, e=1, forceNormalizeWeights=True)
 
+    blendShapes = blendShapesSetup(body)
+    mc.reorderDeformers(
+        "C_jumperBaseSurface_SC", "C_jumperSurfaceBase_BLS", "C_jumperSurface_NRB"
+    )
+
+    # Ensuring deformers are in the correct order:
+    mc.reorderDeformers("wire1", skinCluster, body)
+    mc.reorderDeformers(skinCluster, blendShapes, body)
+
     # Skin gums, teeth, tongue:
     mc.skinCluster("C_head_JNT", "C_upperTeeth_PLY", tsb=1)
     mc.skinCluster("C_head_JNT", "C_upperGums_PLY", tsb=1)
     mc.skinCluster("C_jaw00_JNT", "C_lowerTeeth_PLY", tsb=1)
     mc.skinCluster("C_jaw00_JNT", "C_lowerGums_PLY", tsb=1)
-    mc.skinCluster("C_jaw00_JNT", "C_tongue_PLY", tsb=1)
+    mc.skinCluster(
+        "C_tongue00_JNT",
+        "C_tongue01_JNT",
+        "C_tongue02_JNT",
+        "C_tongue03_JNT",
+        "C_tongue_PLY",
+        fnw=1,
+        tsb=1,
+    )
 
     # Geometry in hierarchy
     mc.setAttr("C_geometry_GRP.inheritsTransform", 0)
