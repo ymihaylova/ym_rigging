@@ -718,6 +718,7 @@ class FaceComponent:
             addToSkinJoints(eyeScalingJnt)
             # Pupil joint which will be controlled by an attribute on the eye rotation ctl:
             pupilJnt = mc.duplicate(eyeJnt)[0]
+            mc.hide(pupilJnt)
             pupilJnt = mc.rename(pupilJnt, pupilJnt.replace("_JNT1", "PupilSize_JNT"))
             mc.parent(pupilJnt, eyeJnt)
             mc.move(2, pupilJnt, z=1, r=1)
@@ -767,10 +768,14 @@ class FaceComponent:
                 rotationCtl, ln="pupilDilation", at="float", min=-1, max=1, dv=0, k=1
             )
             # Plug the output of the pupilSizeAttr into a MDL which in turn drives the scale of the pupil joint:
-            pupilSizeMDL = mc.createNode("multDoubleLinear", n="%s_eyePupilSize_MDV")
+            pupilSizeMDL = mc.createNode(
+                "multDoubleLinear", n="%s_eyePupilSize_MDV" % side
+            )
             mc.setAttr(pupilSizeMDL + ".input1", 2)
             mc.connectAttr(pupilSizeAttr, pupilSizeMDL + ".input2")
-            pupilSizeADL = mc.createNode("addDoubleLinear", n="%s_eyePupilSize_ADL")
+            pupilSizeADL = mc.createNode(
+                "addDoubleLinear", n="%s_eyePupilSize_ADL" % side
+            )
             mc.setAttr(pupilSizeADL + ".input1", 1)
             mc.connectAttr(pupilSizeMDL + ".output", pupilSizeADL + ".input2")
             for v in "xy":
@@ -1683,6 +1688,7 @@ def buildLimb(side, name, parent, skinJointsMessageAttr):
         )
         ikHandle = mc.rename(ikHandle, "%s_leg02_IKH" % side)
         mc.parent(ikHandle, ikCtl)
+        mc.hide(ikHandle)
     # Create IK ctl and handle for the arm:
     if name == "arm":
         ikBaseCtl, _, ikBaseCtlGrp = buildControl(
@@ -1727,6 +1733,7 @@ def buildLimb(side, name, parent, skinJointsMessageAttr):
         )
         ikHandle = mc.rename(ikHandle, "%s_arm03_IKH" % side)
         mc.parent(ikHandle, ikCtl)
+        mc.hide(ikHandle)
 
     # Connect a message attr to the Harry Ctl for all skin joints:
     if name == "leg":
@@ -2379,6 +2386,7 @@ def createBindJointforJumperSleeve(side, pointConstraintJoint, orientConstraintJ
     bindJoint = mc.createNode(
         "joint", n=pointConstraintJoint.replace("03_JNT", "jumperSleeveBind_JNT")
     )
+    mc.hide(bindJoint)
     mc.parent(bindJoint, "%s_arm_GRP" % side)
 
     mc.pointConstraint(pointConstraintJoint, bindJoint, mo=0)
@@ -2618,7 +2626,7 @@ def blendShapesSetup(poly):
     blendShapeDef = mc.blendShape(
         poly,
         n=poly[:-4] + "_BLS",
-        ip="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\shapes\hp_bodyShapes180921.shp",
+        ip="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\shapes\hp_body_blendshapes_19092021.shp",
     )[0]
     mc.setAttr(blendShapeDef + ".C_bodyShrink", 1)
 
@@ -2681,18 +2689,6 @@ def blendShapesSetup(poly):
         mc.connectAttr(clampNegative + ".outputR", blendShapeDef + ".%s_narrow" % side)
         mc.connectAttr(clampNegative + ".outputG", blendShapeDef + ".%s_frown" % side)
 
-    # Jumper bottom blend shape creation and connection
-    jumperBlendShape = mc.blendShape(
-        ["L_jumperSurfaceLegUp", "R_jumperSurfaceLegUp"],
-        "C_jumperSurface_NRB",
-        n="C_jumperSurfaceBase_BLS",
-    )[0]
-    for s in "LR":
-        mc.connectAttr(
-            s + "_leg00YTwistExtractionTransform_RMV.outValue",
-            jumperBlendShape + "." + s + "_jumperSurfaceLegUp",
-        )
-
     # Jaw opening controlling the jaw open corrective:
     jawOpen0to16 = mc.createNode(
         "animBlendNodeAdditiveDA", n="C_jawCorrectiveNormalize0to1_ADA"
@@ -2721,12 +2717,42 @@ def blendShapesSetup(poly):
     mc.connectAttr(head0to45 + ".output", neckClamp + ".inputR")
     mc.connectAttr(neckClamp + ".outputR", blendShapeDef + ".C_neck")
 
+    # Jumper bottom blend shape creation and connection
+    jumperBlendShape = mc.blendShape(
+        ["L_jumperSurfaceLegUp", "R_jumperSurfaceLegUp"],
+        "C_jumperSurface_NRB",
+        n="C_jumperSurfaceBase_BLS",
+    )[0]
+    for s in "LR":
+        mc.connectAttr(
+            s + "_leg00YTwistExtractionTransform_RMV.outValue",
+            jumperBlendShape + "." + s + "_jumperSurfaceLegUp",
+        )
+
+    # Shirt automated blend shapes for moving the neck:
+    # Twist in Z responsible for side to side movement, and twist in Y for back and forth
+    shirtBlendShapeDef = mc.blendShape(
+        "C_shirt_PLY",
+        n="C_shirt_BLS",
+        ip="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\shapes\hp_shirt_blendshapes.shp",
+    )[0]
+
+    for s, d, v in zip("LR", ["Forward", "Back"], ["Negative", "Positive"]):
+        mc.connectAttr(
+            "C_neck00ZTwistExtractionTransform%s_RMV.outValue" % v,
+            shirtBlendShapeDef + "." + s + "_neckSide",
+        )
+        mc.connectAttr(
+            "C_neck00YTwistExtractionTransform%s_RMV.outValue" % v,
+            shirtBlendShapeDef + ".C_neck" + d,
+        )
+
     return blendShapeDef
 
 
-def blendShapeDriverFromTwist(twistValue, angle=90, remapRange=(0, 1)):
+def blendShapeDriverFromTwist(twistValue, n="", angle=90, remapRange=(0, 1)):
     node = mc.createNode(
-        "multiplyDivide", n=twistValue.split(".")[0].rsplit("_", 1)[0] + "_MDV"
+        "multiplyDivide", n=twistValue.split(".")[0].rsplit("_", 1)[0] + n + "_MDV"
     )
     mc.connectAttr(twistValue, node + ".input1X")
     mc.setAttr(node + ".input2X", angle)
@@ -2780,6 +2806,9 @@ def jointWithHalfwayTwist(
     )
     addToSkinJoints(halfwayJoint)
 
+    if not DEBUG_MODE:
+        mc.hide(halfwayJoint)
+
     return halfwayJoint, joint1Twist, joint2Twist
 
 
@@ -2809,6 +2838,27 @@ def createSpaces(ctl, spaces=[]):
                 mc.setDrivenKeyframe(
                     parConAttrs[parConId], cd=spacesAttr, dv=spaceId, v=0
                 )
+
+
+def buildPoleVectorControl(side, name, guideJoint, ikHandle):
+    """Builds a pole vector control, positions it along a vector using the 
+    getIKhPoleVecPos function and creates a pole vector constraint to the passed joint.
+    Returns the created control"""
+    poleVectorCtl, _, poleVectorGrp = buildControl(
+        side,
+        name,
+        guideJoint,
+        shapeCVs=cs.DIAMOND_SHAPE_CVS,
+        colour=18 if side == "L" else 20,
+    )
+    poleVectorPos = vs.getIkhPoleVecPos(ikHandle)
+    mc.scale(4, 4, 4, poleVectorCtl + ".cv[*]")
+    mc.move(
+        poleVectorPos.x, poleVectorPos.y, poleVectorPos.z, poleVectorGrp,
+    )
+    mc.poleVectorConstraint(poleVectorCtl, ikHandle)
+
+    return poleVectorCtl, poleVectorGrp
 
 
 def main():
@@ -2853,22 +2903,9 @@ def main():
             ikBaseCtl,
         ) = buildLimb(side, "leg", "C_hips_CTL", harryCtlSkinJoints)
         # Build Pole Vector control and create pole vector constraint to leg02IK:
-        kneePoleVectorCtl, _, kneePoleVectorGrp = buildControl(
-            side,
-            "kneePoleVector",
-            "%s_leg01Ik_JNT" % side,
-            shapeCVs=cs.DIAMOND_SHAPE_CVS,
-            colour=18 if side == "L" else 20,
+        kneePoleVectorCtl, kneePoleVectorGrp = buildPoleVectorControl(
+            side, "kneePoleVector", "%s_leg01Ik_JNT" % side, footIkHandle
         )
-        kneePoleVectorPos = vs.getIkhPoleVecPos(footIkHandle)
-        mc.scale(4, 4, 4, kneePoleVectorCtl + ".cv[*]")
-        mc.move(
-            kneePoleVectorPos.x,
-            kneePoleVectorPos.y,
-            kneePoleVectorPos.z,
-            kneePoleVectorGrp,
-        )
-        mc.poleVectorConstraint(kneePoleVectorCtl, footIkHandle)
         createSpaces(
             kneePoleVectorCtl, spaces=[world, "C_root_CTL", "C_hips_CTL", footIkCtl]
         )
@@ -2916,8 +2953,8 @@ def main():
             )
 
             # Drive leg up corrective BS:
-            blendShapeDriverFromTwist(leftTwist, -90, (0.32, 0.87))
-            blendShapeDriverFromTwist(rightTwist, -90, (0.32, 0.87))
+            blendShapeDriverFromTwist(leftTwist, angle=-90, remapRange=(0.32, 0.87))
+            blendShapeDriverFromTwist(rightTwist, angle=-90, remapRange=(0.32, 0.87))
 
         buildBendyLimbs(side, "leg")
         # Clean up:
@@ -2970,22 +3007,10 @@ def main():
         ) = buildLimb(side, "arm", "C_chest_CTL", harryCtlSkinJoints)
 
         # Elbow pole vector:
-        elbowPoleVectorCtl, _, elbowPoleVectorGrp = buildControl(
-            side,
-            "elbowPoleVector",
-            "%s_arm02Ik_JNT" % side,
-            shapeCVs=cs.DIAMOND_SHAPE_CVS,
-            colour=18 if side == "L" else 20,
+        elbowPoleVectorCtl, elbowPoleVectorGrp = buildPoleVectorControl(
+            side, "elbowPoleVector", "%s_arm02Ik_JNT" % side, wristIkHandle
         )
-        elbowPoleVectorPos = vs.getIkhPoleVecPos(wristIkHandle)
-        mc.scale(4, 4, 4, elbowPoleVectorCtl + ".cv[*]")
-        mc.move(
-            elbowPoleVectorPos.x,
-            elbowPoleVectorPos.y,
-            elbowPoleVectorPos.z,
-            elbowPoleVectorGrp,
-        )
-        mc.poleVectorConstraint(elbowPoleVectorCtl, wristIkHandle)
+
         # Create spaces (same as wristIk + wristIK ctl):
         createSpaces(
             elbowPoleVectorCtl,
@@ -2999,6 +3024,7 @@ def main():
                 wristIkCtl,
             ],
         )
+
         # Place Ik ctls in hierarchy withing the CTLs group:
         ikCtlsGrp = mc.group(
             elbowPoleVectorGrp, wristIkCtlGrp, n="%s_armIkCtls_GRP" % side, w=1
@@ -3094,8 +3120,8 @@ def main():
             copySkinWeightsFrom=body,
         )
 
-    for ply in ["pants", "shirt", "tie", "jumper"]:
-        if ply in ["jumper", "shirt"]:
+    for ply in ["pants", "jumper", "tie"]:
+        if ply in ["jumper"]:
             bindJoints = skinJoints + jumperBindJoints
         else:
             bindJoints = skinJoints
@@ -3113,12 +3139,46 @@ def main():
         )
         mc.skinCluster(clothingSkinCluster, e=1, forceNormalizeWeights=True)
 
+    # driving blend shapes for the shirt collar with the twist in neck:
+    neckJointTwistInZ = vs.extractTwist("C_neck00_JNT", "C_chest_CTL", alignXwith="Z")
+    neckJointTwistInY = vs.extractTwist("C_neck00_JNT", "C_chest_CTL", alignXwith="Y")
+
+    blendShapeDriverFromTwist(
+        neckJointTwistInZ, n="Positive", angle=23.5, remapRange=(0.2, 1)
+    )
+    blendShapeDriverFromTwist(
+        neckJointTwistInZ, n="Negative", angle=-23.5, remapRange=(0.2, 1)
+    )
+    blendShapeDriverFromTwist(
+        neckJointTwistInY, n="Positive", angle=21.4, remapRange=(0.25, 1)
+    )
+    blendShapeDriverFromTwist(
+        neckJointTwistInY, n="Negative", angle=-21.4, remapRange=(0.2, 1)
+    )
+
     blendShapes = blendShapesSetup(body)
     mc.reorderDeformers(
         "C_jumperBaseSurface_SC", "C_jumperSurfaceBase_BLS", "C_jumperSurface_NRB"
     )
 
-    # Ensuring deformers are in the correct order:
+    # Shirt skinning:
+    shirtSkinCluster = mc.skinCluster(
+        skinJoints + jumperBindJoints, "C_shirt_PLY", n="C_shirt_SC", tsb=1
+    )[0]
+
+    mc.deformerWeights(
+        "shirt_skin_weights.xml",
+        path="C:\Users\Yana\Documents\maya\projectFolder\HPScripted\sourceimages",
+        deformer=shirtSkinCluster,
+        im=1,
+        method="index",
+    )
+    mc.skinCluster(shirtSkinCluster, e=1, forceNormalizeWeights=True)
+
+    # # Wrap tie to shirt:
+    # mc.deformer(type="wrap", g=["C_tie_PLY", "C_shirt_PLY"], n="C_tie_WD")
+
+    # # Ensuring body deformers are in the correct order:
     mc.reorderDeformers("wire1", skinCluster, body)
     mc.reorderDeformers(skinCluster, blendShapes, body)
 
@@ -3136,6 +3196,7 @@ def main():
         fnw=1,
         tsb=1,
     )
+    mc.parentConstraint("C_head_CTL", "C_hairAndEyebrowsProxy_PLY", mo=1)
 
     # Geometry in hierarchy
     mc.setAttr("C_geometry_GRP.inheritsTransform", 0)
