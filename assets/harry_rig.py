@@ -267,7 +267,7 @@ def main():
     # Create and load blendshapes
     blendShapeDef = blendShape.loadBlendShapes(
         "C_body_PLY",
-        "HP_blendShapes.shp",
+        "hp_body_blendshapes_19092021.shp",
         "C:\Users\Yana\Documents\maya\projectFolder\HPScripted\shapes",
     )
     mc.setAttr(blendShapeDef + ".C_bodyShrink", 1)
@@ -326,7 +326,7 @@ def main():
         n="C_jumperSurfaceBase_BLS",
     )[0]
     for s in "LR":
-        mc.delete("%s_jumperSurfaceLegUp")
+        mc.delete(s + "_jumperSurfaceLegUp")
 
     for s in "LR":
         mc.connectAttr(
@@ -338,7 +338,7 @@ def main():
     # Twist in Z responsible for side to side movement, and twist in Y for back and forth
     shirtBlendShapeDef = blendShape.loadBlendShapes(
         "C_shirt_PLY",
-        "hp_shirt_blendshapes.shp",
+        "hp_shirt_blendshapesWithCorrectives.shp",
         "C:\Users\Yana\Documents\maya\projectFolder\HPScripted\shapes",
     )
 
@@ -354,7 +354,7 @@ def main():
 
     # Clothes skinning
     for ply in ["pants", "jumper", "tie", "shirt"]:
-        if ply == "jumper":
+        if ply in ["jumper", "shirt"]:
             bindJoints = skinJoints + jumperBindJoints
         else:
             bindJoints = skinJoints

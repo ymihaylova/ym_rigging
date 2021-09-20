@@ -163,4 +163,5 @@ def createBindJoints(
         if DEBUG_MODE == False:
             mc.setAttr(bindJoint + ".v", 0)
             mc.setAttr(follicle + "Shape.visibility", 0)
+
     return jointList
