@@ -97,7 +97,6 @@ class HeadComponent(BaseComponent):
         mc.connectAttr(jointStretch + ".output.outputX", jointChainTwist[-1] + ".tx")
         # Orient to parent/world
         space.orientToParent(neckBaseCtl, "C_head_CTL", "C_head_GRP")
-        print("na maika ti putkata")
         if not DEBUG_MODE:
             attr.lockAndHide(headCtl, attrList=[".sxyz"])
             attr.lockAndHide(neckBaseCtl, attrList=[".sxyz"])

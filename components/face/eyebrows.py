@@ -2,111 +2,76 @@ from maya import cmds as mc
 from ...common import control
 from ..base import BaseComponent
 
+
 class EyebrowsComponent(BaseComponent):
-    def __init__(self):
+    def __init__(self, browCurve, orientationLoc, parent="C_head_CTL"):
         super(EyebrowsComponent, self).__init__()
 
         DEBUG_MODE = mc.getAttr("C_top_CTL.debugMode")
 
         # Setup:
-        browCurve = "C_eyebrows_CRV"
-        orientationLoc = "C_eyebrowOrientation_LTR"
-        leftBrowCtlsGrp = mc.createNode(
-            "transform", n="L_eyebrowCtls_GRP", p="C_head_CTL"
-        )
-        rightBrowCtlsGrp = mc.createNode(
-            "transform", n="R_eyebrowCtls_GRP", p="C_head_CTL"
-        )
-        # Build clusters and controls for eyebrow curve:
-        cvOrderLeft = ["4:6", "3", "2", "0:1"]
-        midwayCv = "7"
-        cvOrderRight = ["8:10", "11", "12", "13:14"]
-        # Left eyebrow:
-        # Left eyebrow primary layer control set up:
-        _, clusterHandle = mc.cluster(
-            browCurve + ".cv[3]", name="L_eyebrowComponent_CLS"
-        )
-        leftEyebrowCtl, _, leftEyebrowGrp = control.buildControl(
-            "L",
-            "eyebrowComponent",
-            guide=clusterHandle,
-            shapeCVs=control.shapes.RECTANGLE_SHAPE_CVS,
-            colour=18,
-        )
-        mc.delete(mc.orientConstraint(orientationLoc, leftEyebrowGrp, mo=0))
-        mc.parent(leftEyebrowGrp, leftBrowCtlsGrp)
-        mc.rotate(90, 0, 0, leftEyebrowCtl + ".cv[*]", ws=0, r=1)
-        mc.move(-0.5, -0.5, 3, leftEyebrowCtl + ".cv[*]", ws=0, r=1)
-        mc.scale(2, 1, 1, leftEyebrowCtl + ".cv[*]")
-        mc.delete(clusterHandle)
-        # Left eyebrow secondary layer controls:
-        for counter, cvIds in enumerate(cvOrderLeft):
-            cvs = browCurve + ".cv[%s]" % cvIds
-            _, clusterHandle = mc.cluster(
-                cvs, name="L_eyebrow%s_CLS" % str(counter).zfill(2)
-            )
-            if cvIds != "0:1":
-                ctl, _, grp = control.buildControl(
-                    "L",
-                    "eyebrow%s" % str(counter).zfill(2),
-                    shapeCVs="sphere",
-                    guide=clusterHandle,
-                    colour=18,
-                )
-                mc.delete(mc.orientConstraint(orientationLoc, grp, mo=0))
-                mc.scale(0.2, 0.2, 0.2, ctl + "Shape*.cv[*]")
-                mc.move(0, 0, 1, ctl + "Shape*.cv[*]", ws=1, r=1)
-                mc.parent(clusterHandle, ctl)
-                mc.parent(grp, leftEyebrowCtl)
-                mc.hide(clusterHandle)
-            else:
-                mc.parent(clusterHandle, leftBrowCtlsGrp)
-                mc.hide(clusterHandle)
-        # Right eyebrow:
-        # Right eyebrow primary layer control set up:
-        _, clusterHandle = mc.cluster(
-            browCurve + ".cv[11]", name="R_eyebrowComponent_CLS"
-        )
-        rightEyebrowCtl, _, rightEyebrowGrp = control.buildControl(
-            "R",
-            "eyebrowComponent",
-            guide=clusterHandle,
-            shapeCVs=control.shapes.RECTANGLE_SHAPE_CVS,
-            colour=20,
-        )
-        mc.delete(mc.orientConstraint(orientationLoc, rightEyebrowGrp, mo=0))
-        mc.parent(rightEyebrowGrp, rightBrowCtlsGrp)
-        mc.rotate(90, 0, 0, rightEyebrowCtl + ".cv[*]", ws=0, r=1)
-        mc.move(0.5, -0.5, 3, rightEyebrowCtl + ".cv[*]", ws=0, r=1)
-        mc.scale(2, 1, 1, rightEyebrowCtl + ".cv[*]")
-        mc.delete(clusterHandle)
+        browsCtlsGrp = mc.createNode("transform", n="C_eyebrows_GRP", p=parent)
+        # At the moment this assumes that numCvs%2 = 1
+        numCvs = mc.getAttr(browCurve + ".spans") + mc.getAttr(browCurve + ".degree")
+        midCv = numCvs / 2
+        cvOrderRanges = {"L": [0, midCv], "R": [numCvs - 1, midCv]}
+        compoundCtlGuide = {"L": midCv / 2, "R": (midCv + 1 + numCvs) / 2}
+        # Get CV order list:
 
-        for counter, cvIds in enumerate(cvOrderRight):
-            cvs = browCurve + ".cv[%s]" % cvIds
-            _, clusterHandle = mc.cluster(
-                cvs, name="R_eyebrow%s_CLS" % str(counter).zfill(2)
+        for s in "LR":
+            # Compound control set up using a dummy cluster created at the halfway cv for each side of the curve:
+            sideGrp = mc.createNode(
+                "transform", n=s + "_eyebrowCtls_GRP", p=browsCtlsGrp
             )
-            if cvIds != "13:14":
-                ctl, _, grp = control.buildControl(
-                    "R",
-                    "eyebrow%s" % str(counter).zfill(2),
-                    shapeCVs="sphere",
-                    guide=clusterHandle,
-                    colour=20,
-                )
-                mc.delete(mc.orientConstraint(orientationLoc, grp, mo=0))
-                mc.scale(0.2, 0.2, 0.2, ctl + "Shape*.cv[*]")
-                mc.move(0, 0, 1, ctl + "Shape*.cv[*]", ws=1, r=1)
-                mc.parent(clusterHandle, ctl)
-                mc.parent(grp, rightEyebrowCtl)
-                mc.hide(clusterHandle)
+
+            _, dummyCluster = mc.cluster(
+                browCurve + ".cv[%s]" % str(compoundCtlGuide[s]), n=s + "_dummy",
+            )
+            eyebrowCtl, _, eyebrowGrp = control.buildControl(
+                s,
+                "eyebrowComponent",
+                guide=dummyCluster,
+                shapeCVs=control.shapes.EYEBROW_SHAPE_CVS,
+                colour=18 if s == "L" else 20,
+            )
+            mc.move(0, 0, 3, eyebrowCtl + ".cv[*]", ws=1, r=1)
+            mc.delete(mc.orientConstraint(orientationLoc, eyebrowGrp, mo=0))
+            mc.parent(eyebrowGrp, sideGrp)
+            mc.delete(dummyCluster)
+            # TO DO: Come up with a better way to do this and remove the hardcoding here
+            if s == "L":
+                cvOrder = ["4:6", "3", "2", "0:1"]
             else:
-                mc.parent(clusterHandle, rightBrowCtlsGrp)
-                mc.hide(clusterHandle)
+                cvOrder = ["8:10", "11", "12", "13:14"]
+
+            for counter, cvIds in enumerate(cvOrder):
+                cvs = browCurve + ".cv[%s]" % cvIds
+                _, clusterHandle = mc.cluster(
+                    cvs, name=s + "_eyebrow%s_CLS" % str(counter).zfill(2)
+                )
+                if counter != len(cvOrder) - 1:
+                    ctl, ofs, grp = control.buildControl(
+                        s,
+                        "eyebrow%s" % str(counter).zfill(2),
+                        shapeCVs="sphere",
+                        guide=clusterHandle,
+                        colour=18 if s == "L" else 20,
+                    )
+                    mc.delete(mc.orientConstraint(orientationLoc, grp, mo=0))
+                    mc.scale(0.2, 0.2, 0.2, ctl + "Shape*.cv[*]")
+                    mc.move(0, 0, 1, ctl + "Shape*.cv[*]", ws=1, r=1)
+                    mc.parent(clusterHandle, ctl)
+                    mc.parent(grp, eyebrowCtl)
+                    if counter == (len(cvOrder) - 2):
+                        mc.pointConstraint(
+                            eyebrowCtl, parent, ofs, mo=1, w=0.5,
+                        )
+                else:
+                    mc.parent(clusterHandle, sideGrp)
 
         # Midbrow Ctl:
         _, clusterHandle = mc.cluster(
-            browCurve + ".cv[%s]" % midwayCv, name="C_eyebrowMid_CLS"
+            browCurve + ".cv[%s]" % midCv, name="C_eyebrowMid_CLS"
         )
         ctl, ofs, grp = control.buildControl(
             "C", "eyebrowMid", shapeCVs="sphere", guide=clusterHandle
@@ -115,29 +80,15 @@ class EyebrowsComponent(BaseComponent):
         mc.move(0, 0, 1, ctl + "Shape*.cv[*]", ws=1, r=1)
         mc.parent(clusterHandle, ctl)
         mc.pointConstraint("L_eyebrow00_CTL", "R_eyebrow00_CTL", ofs, mo=1)
-        mc.parent(grp, "C_head_CTL")
-        mc.hide(clusterHandle)
+        mc.parent(grp, browsCtlsGrp)
 
         mc.setAttr(browCurve + ".inheritsTransform", 0)
-        mc.setAttr(browCurve + ".tx", 0)
-        mc.setAttr(browCurve + ".ty", 0)
-        mc.setAttr(browCurve + ".tz", 0)
-
-        # Point constrain the end secondary layer control to the eyebrow
-        # compound joint and the head control for more pleasing behaviour when
-        # brow is lowered:
-        for side in "LR":
-            mc.pointConstraint(
-                "%s_eyebrowComponent_CTL" % side,
-                "C_head_CTL",
-                "%s_eyebrow02_OFS" % side,
-                mo=1,
-                w=0.5,
-            )
+        # Clean up:
 
         if not DEBUG_MODE:
-            mc.hide(browCurve)
+            mc.hide(mc.ls("*eyebrow*CLS*"))
             mc.delete(orientationLoc)
 
-        # Store things that might be needed from outside
+        # # Store things that might be needed from outside
         self.browCurve = browCurve
+        self.browCtlsGroup = browsCtlsGrp

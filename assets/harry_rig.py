@@ -82,9 +82,7 @@ def main():
 
     # Face
     # Eyebrows
-    # TODO: Make it so the args for this component are not hardcoded, but
-    # taken in as arguments similar to the spine, head and limb components
-    eyebrows = components.face.eyebrows()
+    eyebrows = components.face.eyebrows("C_eyebrows_CRV", "C_eyebrowsOrientation_LOC")
 
     # Create wire deformers for C_body_PLY and for the eyebrow proxies:
     bodyWireDefNode, _ = mc.wire("C_body_PLY", w=eyebrows.browCurve, dds=(0, 4.01))
@@ -101,8 +99,9 @@ def main():
     mc.parentConstraint("C_head_CTL", "C_eyebrowsProxy_PLY", mo=1)
 
     # Clean up:
-    mc.parent(mc.ls(eyebrows.browCurve + "*", typ="transform"), "C_head_CTL")
-
+    mc.parent(
+        mc.ls(eyebrows.browCurve + "*", typ="transform"), eyebrows.browCtlsGroup, r=1
+    )
     # Eyes
     # TODO: Make it so the args for this component are not hardcoded, but
     # taken in as arguments similar to the spine, head and limb components
